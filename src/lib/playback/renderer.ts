@@ -240,19 +240,23 @@ export function momentAt(a: Analysis, f: number): LngLat {
   return [a.samples[i].lon + (a.samples[j].lon - a.samples[i].lon) * u, a.samples[i].lat + (a.samples[j].lat - a.samples[i].lat) * u];
 }
 
-/** Resolves once the map has drawn the current camera with all tiles loaded (or after a timeout). */
-export function settled(map: MlMap, timeoutMs = 5000): Promise<void> {
+/**
+ * Resolves once the map has drawn the current camera with all tiles settled: true when it went
+ * idle, false when it timed out first (tiles still loading).
+ */
+export function settled(map: MlMap, timeoutMs = 5000): Promise<boolean> {
   return new Promise((resolve) => {
     let finished = false;
-    const finish = () => {
+    const finish = (idle: boolean) => {
       if (finished) return;
       finished = true;
       clearTimeout(timer);
-      map.off("idle", finish);
-      resolve();
+      map.off("idle", onIdle);
+      resolve(idle);
     };
-    const timer = setTimeout(finish, timeoutMs);
-    map.once("idle", finish);
+    const onIdle = () => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    map.once("idle", onIdle);
     map.triggerRepaint();
   });
 }

@@ -11,10 +11,12 @@
   },
   "ratelimits": [
     {
-      // Per-IP cap on tile proxy requests. A 30 s video export at 1080p pulls a few thousand tiles.
+      // Per-IP cap on tile proxy requests that miss the edge cache (hits aren't counted). A first
+      // export of a new area at 60 fps can pull several thousand tiles a minute; the app backs
+      // off and retries on 429, so this protects the upstream quota without breaking renders.
       "name": "TILE_LIMITER",
       "namespace_id": "1001",
-      "simple": { "limit": 4000, "period": 60 }
+      "simple": { "limit": 10000, "period": 60 }
     }
   ],
   "observability": { "enabled": true }

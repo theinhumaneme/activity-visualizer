@@ -69,7 +69,8 @@ async function tile(request: Request, env: Env, ctx: ExecutionContext, name: str
 
   const ip = request.headers.get("cf-connecting-ip") ?? "local";
   const { success } = await env.TILE_LIMITER.limit({ key: ip });
-  if (!success) return new Response("Too many tile requests", { status: 429 });
+  // Tell the client how long to back off; it retries rather than leaving a hole in the map.
+  if (!success) return new Response("Too many tile requests", { status: 429, headers: { "Retry-After": "5" } });
 
   const upstream = await fetch(source.url(z, x, y, env), {
     headers: { "User-Agent": "activity-visualizer/0.1 (+tile proxy)" },

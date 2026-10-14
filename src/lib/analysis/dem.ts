@@ -1,4 +1,5 @@
 import { mercX, mercY } from "../geo/geo";
+import { fetchWithRetry } from "../net/retryFetch";
 
 const TILE = 256;
 const MAX_TILES = 48;
@@ -16,7 +17,7 @@ export async function sampleTerrain(points: { lat: number; lon: number }[], sign
   await Promise.all(
     [...tiles].map(async (k) => {
       try {
-        const res = await fetch(`/api/tiles/terrain/${z}/${k}`, { signal });
+        const res = await fetchWithRetry(`/api/tiles/terrain/${z}/${k}`, signal);
         if (!res.ok) throw new Error(String(res.status));
         const bmp = await createImageBitmap(await res.blob());
         const canvas = new OffscreenCanvas(TILE, TILE);

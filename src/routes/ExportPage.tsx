@@ -89,7 +89,7 @@ export function ExportPage() {
     const ctrl = new AbortController();
     abort.current = ctrl;
     setRendering(true);
-    setProgress({ stage: "tiles", frame: 0, total: 1, elapsedMs: 0 });
+    setProgress({ stage: "tiles", frame: 0, total: 1, elapsedMs: 0, rateLimited: 0 });
     // On one-column layouts the progress sits above the options: bring it into view.
     if (matchMedia("(max-width: 1023px)").matches) preview.current?.scrollIntoView({ block: "center" });
     const opts = {
@@ -299,6 +299,14 @@ export function ExportPage() {
               <button type="button" onClick={() => setResult(null)} className="btn btn-quiet btn-sm mt-2">
                 Change options
               </button>
+              {result.incompleteFrames > 0 && (
+                <p role="status" className="mt-3 max-w-sm text-center text-sm text-ink-2">
+                  {result.method === "still"
+                    ? "Some map tiles still hadn't loaded after several retries, so parts of the map may be blank."
+                    : `${result.incompleteFrames} frame${result.incompleteFrames === 1 ? " was" : "s were"} captured with map tiles still missing after several retries.`}{" "}
+                  The tiles that did load are cached now, so rendering again usually fills the gaps.
+                </p>
+              )}
               {result.method === "mediarecorder" && (
                 <p className="mt-3 text-center text-sm text-ink-2">Your browser doesn't support frame-accurate encoding, so this was recorded in real time and may stutter in places.</p>
               )}
@@ -330,6 +338,7 @@ export function ExportPage() {
                   </div>
                   <p className="mt-2 text-center text-label text-muted tabular">
                     {progress?.stage === "frames" ? `Frame ${progress.frame} of ${progress.total}${eta ? ` · about ${formatDuration(eta / 1000)} left` : ""}. ` : "Loading the map… "}
+                    {progress && progress.rateLimited > 0 ? "The tile server is busy, so tiles are being retried; this frame may take longer. " : ""}
                     Keep this tab open; it pauses in the background.
                   </p>
                 </div>

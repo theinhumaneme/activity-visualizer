@@ -7,6 +7,7 @@ import { sampler } from "../lib/geo/terrainGrid";
 import { drawHud, loadHudFonts } from "../lib/hud/hud";
 import { COLOR_MODES, modeAvailable } from "../lib/map/route";
 import { LOOKS, type LookId, flyoverStyle } from "../lib/map/style";
+import { retryTiles } from "../lib/map/tileFetch";
 import { FlyoverRenderer, addFlyoverLayers } from "../lib/playback/renderer";
 import { type FrameState, type Timeline, autoExaggeration, buildTimeline } from "../lib/playback/timeline";
 import { DEFAULT_PRIVACY_RADIUS, useStore } from "../state/store";
@@ -126,6 +127,7 @@ export function FlyoverPage() {
         map = new MlMap({
           container: container.current,
           style,
+          transformRequest: retryTiles,
           interactive: false,
           maxPitch: 85,
           attributionControl: { compact: true },

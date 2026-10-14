@@ -5,6 +5,7 @@ import { type TerrainGrid, sampler } from "../geo/terrainGrid";
 import { drawHud, loadHudFonts } from "../hud/hud";
 import { type ColorMode } from "../map/route";
 import { LOOKS, type LookId, flyoverStyle } from "../map/style";
+import { reloadFailedTiles, retryTiles, tileHealth } from "../map/tileFetch";
 import { FlyoverRenderer, addFlyoverLayers, settled } from "../playback/renderer";
 import { type CameraMode, type Timeline, buildTimeline } from "../playback/timeline";
 
@@ -33,6 +34,8 @@ export interface ExportProgress {
   frame: number;
   total: number;
   elapsedMs: number;
+  /** Tile requests retried because the tile server was rate-limiting (so the UI can say why it's slow). */
+  rateLimited: number;
 }
 
 export interface ExportResult {
@@ -42,6 +45,8 @@ export interface ExportResult {
   height: number;
   duration: number;
   method: "webcodecs" | "mediarecorder" | "still";
+  /** Frames captured with map tiles still missing after every retry (0 when the video is complete). */
+  incompleteFrames: number;
 }
 
 export function exportSize(aspect: Aspect, short: number) {
@@ -77,7 +82,8 @@ interface Stage {
   composite: HTMLCanvasElement;
   W: number;
   H: number;
-  draw(T: number, poster?: boolean): Promise<void>;
+  /** Renders one frame; resolves false if map tiles were still missing after retries. */
+  draw(T: number, poster?: boolean): Promise<boolean>;
   cleanup(): void;
 }
 
@@ -101,6 +107,8 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
     pixelRatio: PIXEL_RATIO,
     maxPitch: 85,
     canvasContextAttributes: { preserveDrawingBuffer: true, antialias: true },
+    // Tiles retry rate limits and server errors instead of leaving holes in the frame.
+    transformRequest: retryTiles,
     center: [a.samples[0].lon, a.samples[0].lat],
     zoom: 13,
   });
@@ -143,7 +151,7 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
     await whenVisible(signal);
     const state = timeline.frame(T);
     renderer.apply(state);
-    await settled(map);
+    const complete = await settleFrame(map);
     ctx.drawImage(map.getCanvas(), 0, 0, W, H);
     drawHud(ctx, W, H, a, state, {
       look,
@@ -158,8 +166,25 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
       },
       poster,
     });
+    return complete;
   };
   return { map, renderer, timeline, composite, W, H, draw, cleanup };
+}
+
+/**
+ * Waits until every tile the frame needs is in. MapLibre counts a tile that failed as "loaded",
+ * so going idle isn't enough: if a tile failed even after fetchWithRetry's backoff, reload the
+ * sources concerned and wait again. Returns false if the frame is still incomplete after that,
+ * so the exporter can report it instead of shipping a hole silently.
+ */
+async function settleFrame(map: MlMap): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const failedBefore = tileHealth.failed;
+    const idle = await settled(map, attempt === 0 ? 8000 : 15000);
+    if (idle && tileHealth.failed === failedBefore) return true;
+    reloadFailedTiles(map);
+  }
+  return false;
 }
 
 /** Resolves when the page is visible (immediately if it already is). */
@@ -193,10 +218,12 @@ export async function renderVideo(
     // No separate tile pre-pass: every frame already waits for its own tiles, so flying the
     // route twice only doubled the waiting.
     const total = Math.ceil(st.timeline.duration * opts.fps);
+    let incompleteFrames = 0;
+    const limitedAtStart = tileHealth.rateLimited;
     const drawFrame = async (i: number) => {
-      await st.draw(i / opts.fps);
+      if (!(await st.draw(i / opts.fps))) incompleteFrames++;
       if (previewCtx && hooks.preview) previewCtx.drawImage(st.composite, 0, 0, hooks.preview.width, hooks.preview.height);
-      hooks.onProgress({ stage: "frames", frame: i + 1, total, elapsedMs: performance.now() - started });
+      hooks.onProgress({ stage: "frames", frame: i + 1, total, elapsedMs: performance.now() - started, rateLimited: tileHealth.rateLimited - limitedAtStart });
     };
 
     const codec = typeof VideoEncoder !== "undefined" ? await getFirstEncodableVideoCodec(["avc", "vp9", "av1"], { width: st.W, height: st.H }) : null;
@@ -227,6 +254,7 @@ export async function renderVideo(
         height: st.H,
         duration: total / opts.fps,
         method: "webcodecs",
+        incompleteFrames,
       };
     }
 
@@ -253,7 +281,7 @@ export async function renderVideo(
       await stopped;
     }
     const extension = mime.startsWith("video/mp4") ? "mp4" : "webm";
-    return { blob: new Blob(chunks, { type: mime.split(";")[0] }), extension, width: st.W, height: st.H, duration: total / opts.fps, method: "mediarecorder" };
+    return { blob: new Blob(chunks, { type: mime.split(";")[0] }), extension, width: st.W, height: st.H, duration: total / opts.fps, method: "mediarecorder", incompleteFrames };
   } finally {
     st.cleanup();
   }
@@ -266,9 +294,9 @@ export async function renderPoster(a: Analysis, opts: ExportOptions, signal: Abo
     const T = st.timeline.marks.end + 0.5;
     await st.draw(T, false);
     // A second pass after tiles for the final camera are certainly in.
-    await st.draw(T, true);
+    const complete = await st.draw(T, true);
     const blob = await new Promise<Blob>((resolve, reject) => st.composite.toBlob((b) => (b ? resolve(b) : reject(new Error("Couldn't encode the poster."))), "image/png"));
-    return { blob, extension: "png", width: st.W, height: st.H, duration: 0, method: "still" };
+    return { blob, extension: "png", width: st.W, height: st.H, duration: 0, method: "still", incompleteFrames: complete ? 0 : 1 };
   } finally {
     st.cleanup();
   }
