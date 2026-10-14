@@ -1,0 +1,2 @@
+# Copy to .dev.vars to use MapTiler satellite imagery locally (optional).
+MAPTILER_KEY=
