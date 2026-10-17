@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { analyze, defaultSettings } from "../lib/analysis/analyze";
+import { defaultSettings } from "../lib/analysis/analyze";
+import { analyzeOffThread } from "../lib/analysis/remote";
 import { headlineFor } from "../lib/analysis/report";
 import { sampleTerrain } from "../lib/analysis/dem";
 import type { Analysis, Settings, Units } from "../lib/analysis/types";
@@ -108,18 +109,48 @@ function storedUnits(): Units {
 }
 
 let demAbort: AbortController | null = null;
+/** Bumped by each activity switch (and reset): a switch lands only if no newer one started. */
+let selection = 0;
+/** Bumped by each re-analysis of the current activity: only the newest result is applied. */
+let revision = 0;
 
 export const useStore = create<State>((set, get) => {
-  function selectActivity(activity: Activity) {
-    demAbort?.abort();
+  /**
+   * Re-analyzes the current activity in a worker and puts the result in place if it's still the
+   * newest request. Settings show their new values at once; the analysis follows when ready.
+   */
+  function reanalyze(activity: Activity, settings: Settings, dem: Float64Array | null, resetHover: boolean) {
+    const mine = ++revision;
+    analyzeOffThread(activity, settings, dem).then(
+      (a) => {
+        if (!a || mine !== revision || get().activity !== activity) return;
+        // Any change but a rename sends a newer request, so the current settings can only differ
+        // from the requested ones by name: keep them, and the headline that uses the name.
+        const current = get().settings ?? settings;
+        const next: Analysis = { ...a, settings: current };
+        if (current.name !== a.settings.name) next.headline = headlineFor(next);
+        set(resetHover ? { analysis: next, hoverIndex: null, highlight: null } : { analysis: next });
+      },
+      (err) => console.error("Analysis failed", err),
+    );
+  }
+
+  /** Switches to an activity once its first analysis is ready, so pages never see a mismatched pair. */
+  async function selectActivity(activity: Activity) {
+    const mine = ++selection;
     const settings = defaultSettings(activity, storedUnits(), storedPrivacy());
+    const first = await analyzeOffThread(activity, settings, null);
+    if (!first || mine !== selection) return;
+    demAbort?.abort();
+    // Results still on their way for the previous activity no longer apply.
+    revision++;
     set({
       activity,
       settings,
       dem: null,
       demStatus: "loading",
       terrainGrid: null,
-      analysis: analyze(activity, settings, null),
+      analysis: { ...first, settings },
       hoverIndex: null,
       highlight: null,
     });
@@ -128,8 +159,8 @@ export const useStore = create<State>((set, get) => {
     sampleTerrain(activity.samples, ctrl.signal)
       .then((dem) => {
         if (ctrl.signal.aborted || get().activity !== activity) return;
-        const s = get().settings!;
-        set({ dem, demStatus: "done", analysis: analyze(activity, s, dem) });
+        set({ dem, demStatus: "done" });
+        reanalyze(activity, get().settings!, dem, false);
       })
       .catch(() => {
         if (!ctrl.signal.aborted) set({ demStatus: "error" });
@@ -171,8 +202,9 @@ export const useStore = create<State>((set, get) => {
         const activities = await parseInWorker(text, fileName);
         // Default to the longest activity when a file holds several.
         const best = activities.reduce((x, y) => (y.samples.length > x.samples.length ? y : x));
-        set({ fileName, activities, loading: false });
-        selectActivity(best);
+        set({ fileName, activities });
+        await selectActivity(best);
+        set({ loading: false });
         try {
           sessionStorage.setItem(SESSION_KEY, JSON.stringify({ fileName, text }));
         } catch {
@@ -219,7 +251,7 @@ export const useStore = create<State>((set, get) => {
 
     chooseActivity(index) {
       const a = get().activities[index];
-      if (a) selectActivity(a);
+      if (a) selectActivity(a).catch((err) => set({ error: err instanceof Error ? err.message : String(err) }));
     },
 
     updateSettings(patch) {
@@ -249,7 +281,8 @@ export const useStore = create<State>((set, get) => {
         set({ settings: next, analysis: renamed });
         return;
       }
-      set({ settings: next, analysis: analyze(activity, next, dem), hoverIndex: null, highlight: null });
+      set({ settings: next });
+      reanalyze(activity, next, dem, true);
     },
 
     setHover: (i) => {
@@ -277,6 +310,8 @@ export const useStore = create<State>((set, get) => {
     setCameraMode: (m) => set({ cameraMode: m }),
     reset() {
       demAbort?.abort();
+      selection++;
+      revision++;
       try {
         sessionStorage.removeItem(SESSION_KEY);
       } catch {
