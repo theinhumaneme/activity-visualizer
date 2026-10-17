@@ -2,6 +2,14 @@
   "name": "activity-visualizer",
   "private": true,
   "version": "0.1.0",
+  "description": "Turn GPX/TCX activities into 3D flyovers, deep analysis and shareable videos, right in your browser. Files never leave your device.",
+  "license": "MIT",
+  "author": "Kalyan Mudumby",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/theinhumaneme/activity-visualizer.git"
+  },
+  "homepage": "https://github.com/theinhumaneme/activity-visualizer",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -11,7 +11,7 @@ Upload any `.gpx` or `.tcx` activity (runs, rides, hikes, walks, skiing, paddlin
 - **Analysis:** summary, pace with GAP and a raw band, elevation colored by grade or pace with auto-labeled climbs, heart rate with zones (labeled "estimated" until you set your max), cadence, splits, best efforts, efficiency, and interval reps with HR recovery. Reps come from device laps or are detected from pace changes, and need a repeating structure so traffic stops aren't counted.
 - **Flyover:** establishing drop, start reveal, chase, moments (fastest split, climbs, reps, final kick), finish, pull-back, end card. The camera rides a smoothed rail through critically damped springs (bearing ≤ 25°/s, pitch ≈ 10°/s) and keeps clear of the terrain. Time compression and terrain exaggeration are shown on screen. Looks: Night Run, Golden Hour, Editorial (with contours) and Satellite. Color by solid, pace, HR zone, grade or elevation (keys 1–5).
 - **Privacy zone** (default 200 m): hides the route near your start and finish on every map, in the flyover and in exports. Stats still use the whole activity.
-- **Export:** 9:16, 1:1 or 16:9 MP4 at 30 fps, rendered frame by frame (deterministic; it pauses when the tab is hidden), plus PNG posters.
+- **Export:** 9:16, 1:1 or 16:9 MP4 at 30 fps, rendered frame by frame (deterministic; once frames start it keeps going in a background tab), plus PNG posters.
 
 ## Develop
 
@@ -46,8 +46,12 @@ The 2D basemaps and flyover labels come from [OpenFreeMap](https://openfreemap.o
 
 ## How the flyover and export work
 
-`src/lib/playback/timeline.ts` is a pure function from video time to camera, marker and overlay cues. It bakes the whole camera path at 60 Hz, so live preview and export are frame-identical. `src/lib/hud/hud.ts` draws the HUD on a canvas, and the same code draws the preview overlay, every video frame and posters. Export (`src/lib/export/render.ts`) flies the path once to cache tiles, then renders each frame off-screen, waits for tiles, composites the HUD, and encodes MP4 (H.264) with WebCodecs via [Mediabunny]. Browsers without WebCodecs fall back to a real-time MediaRecorder capture.
+`src/lib/playback/timeline.ts` is a pure function from video time to camera, marker and overlay cues. It bakes the whole camera path at 60 Hz, so live preview and export are frame-identical. `src/lib/hud/hud.ts` draws the HUD on a canvas, and the same code draws the preview overlay, every video frame and posters. Export (`src/lib/export/render.ts`) works out every tile the flight needs and preloads them, then renders each frame off-screen, waits for any missing tiles, composites the HUD, and encodes MP4 (H.264) with WebCodecs via [Mediabunny]. Browsers without WebCodecs fall back to a real-time MediaRecorder capture.
 
 Map styles live in `src/lib/map/style.ts`. Every provider is keyless by default (OpenFreeMap vector tiles, Esri imagery, AWS terrain), and switching provider means editing that file and the tile proxy in `worker/index.ts`.
 
 [Mediabunny]: https://mediabunny.dev
+
+## License
+
+[MIT](LICENSE) © Kalyan Mudumby. Map data © OpenStreetMap contributors; basemaps by OpenFreeMap (OpenMapTiles); terrain from the AWS Terrain Tiles open dataset; imagery by Esri (or MapTiler with a key). Built with MapLibre GL JS, Mediabunny, React and uPlot.

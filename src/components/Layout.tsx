@@ -1,10 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { useLibrary } from "../state/library";
 import { useStore } from "../state/store";
 import { type ThemePref, useTheme } from "../state/theme";
 import { STEPS } from "./steps";
 import { Check, Chevron, Segmented } from "./ui";
+
+const REPO = "https://github.com/theinhumaneme/activity-visualizer";
+
+function FooterLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className="underline decoration-line underline-offset-2 hover:text-ink">
+      {children}
+    </a>
+  );
+}
 
 type StepState = "current" | "done" | "available" | "locked";
 
@@ -87,8 +97,18 @@ export function Layout() {
       <main className="flex-1">
         <Outlet />
       </main>
-      <footer className="border-t border-grid px-4 py-5 text-center text-label text-muted">
-        Your files are processed in your browser and never uploaded. Map data © OpenStreetMap contributors.
+      <footer className="border-t border-grid px-4 py-6 text-center text-label text-muted">
+        <p>Your files are processed in your browser and never uploaded.</p>
+        <p className="mt-1.5">
+          Map data © <FooterLink href="https://www.openstreetmap.org/copyright">OpenStreetMap</FooterLink> contributors · Tiles by{" "}
+          <FooterLink href="https://openfreemap.org">OpenFreeMap</FooterLink> · Terrain from{" "}
+          <FooterLink href="https://registry.opendata.aws/terrain-tiles/">AWS Open Data</FooterLink> · Rendered with{" "}
+          <FooterLink href="https://maplibre.org">MapLibre</FooterLink> and <FooterLink href="https://mediabunny.dev">Mediabunny</FooterLink>
+        </p>
+        <p className="mt-1.5">
+          Made by <FooterLink href="https://github.com/theinhumaneme">Kalyan Mudumby</FooterLink> ·{" "}
+          <FooterLink href={`${REPO}/blob/main/LICENSE`}>MIT License</FooterLink> · <FooterLink href={REPO}>Source on GitHub</FooterLink>
+        </p>
       </footer>
     </div>
   );
