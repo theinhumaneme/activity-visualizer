@@ -30,6 +30,7 @@ const SOURCES: Record<string, TileSource> = {
 
 const TILE_PATH = /^\/api\/tiles\/([a-z]+)\/(\d{1,2})\/(\d+)\/(\d+)$/;
 const ONE_WEEK = 60 * 60 * 24 * 7;
+const ONE_DAY = 60 * 60 * 24;
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
@@ -77,14 +78,19 @@ async function tile(request: Request, env: Env, ctx: ExecutionContext, name: str
     cf: { cacheTtl: ONE_WEEK, cacheEverything: true },
   });
   if (!upstream.ok) {
-    // Missing tiles (ocean, beyond coverage) are normal; let the map treat them as empty.
-    return new Response(null, { status: upstream.status === 404 ? 404 : 502 });
+    if (upstream.status !== 404) return new Response(null, { status: 502 });
+    // Missing tiles (ocean, beyond coverage) are normal; let the map treat them as empty, and
+    // remember that for a day so they don't go upstream (and count against the limit) each time.
+    const missing = new Response(null, { status: 404, headers: { "Cache-Control": `public, max-age=${ONE_DAY}` } });
+    ctx.waitUntil(cache.put(cacheKey, missing.clone()));
+    return missing;
   }
 
   const response = new Response(upstream.body, {
     headers: {
       "Content-Type": upstream.headers.get("Content-Type") ?? source.contentType,
-      "Cache-Control": `public, max-age=${ONE_WEEK}`,
+      // A tile URL's content doesn't change within the week: browsers skip revalidating it.
+      "Cache-Control": `public, max-age=${ONE_WEEK}, immutable`,
     },
   });
   ctx.waitUntil(cache.put(cacheKey, response.clone()));
