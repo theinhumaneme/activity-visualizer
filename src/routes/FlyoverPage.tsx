@@ -8,7 +8,7 @@ import { drawHud, loadHudFonts } from "../lib/hud/hud";
 import { COLOR_MODES, modeAvailable } from "../lib/map/route";
 import { DETAIL, MAP_DETAILS, applyTerrainQuality, resolveDetail } from "../lib/map/detail";
 import { LOOKS, type LookId, flyoverStyle } from "../lib/map/style";
-import { retryTiles } from "../lib/map/tileFetch";
+import { planTiles, preloadTiles, releaseTiles, retryTiles } from "../lib/map/tileFetch";
 import { FlyoverRenderer, addFlyoverLayers } from "../lib/playback/renderer";
 import { CAMERA_DISTANCES, CHASE_LENGTHS, cameraDistanceScale, lengthLabel, suggestedLength } from "../lib/playback/lengths";
 import { CAMERA_OPTIONS, type CameraMode, type FrameState, type Timeline, autoExaggeration, buildTimeline } from "../lib/playback/timeline";
@@ -82,6 +82,9 @@ export function FlyoverPage() {
   const [shape, setShape] = useState<Shape>(() => (typeof matchMedia !== "undefined" && matchMedia("(max-width: 639px)").matches ? "9:16" : "wide"));
   const [length, setLength] = useState<number>(() => suggestedLength(a.activity.routeOnly ? 0 : a.summary.moving));
   const [frame, setFrame] = useState<FrameState | null>(null);
+  /** Progress of preloading the whole flight's tiles (null when done or not started). */
+  const [preload, setPreload] = useState<{ done: number; total: number } | null>(null);
+  const preloadRun = useRef<{ timer: number; ctrl: AbortController | null }>({ timer: 0, ctrl: null });
   /** When the time label and scrubber last re-rendered during playback. */
   const uiAt = useRef(0);
   const exaggeration = useMemo(() => autoExaggeration(a), [a]);
@@ -171,6 +174,10 @@ export function FlyoverPage() {
           maxPitch: 85,
           // 3× phone screens would draw 2.25× the pixels of 2× for no visible gain on terrain.
           pixelRatio: Math.min(DETAIL[detail].pixelRatio, window.devicePixelRatio || 1),
+          // Keep processed tiles around (they're re-used as the camera turns back and forth) and let
+          // coarser tiles finish loading while zooming, so there's always something under the view.
+          maxTileCacheZoomLevels: detail === "lite" ? 4 : 10,
+          cancelPendingTileRequestsWhileZooming: false,
           attributionControl: { compact: true },
           center: [a.samples[0].lon, a.samples[0].lat],
           zoom: 13,
@@ -202,6 +209,49 @@ export function FlyoverPage() {
   }, [a, lookId, exaggeration, attempt, detail]);
 
   // (Re)build the timeline when framing inputs change, keeping the relative position.
+  /**
+   * Fetches every tile the whole flight will show (as the export does) into a local store the map
+   * reads from, so tiles coming into view load from the device instead of popping in black over the
+   * network mid-flight. Re-planned (only new tiles fetched) when the camera path changes.
+   */
+  const schedulePreload = useCallback(() => {
+    const run = preloadRun.current;
+    clearTimeout(run.timer);
+    run.timer = window.setTimeout(() => {
+      const tl = timelineRef.current;
+      const map = mapRef.current;
+      if (!tl || !map) return;
+      run.ctrl?.abort();
+      const ctrl = new AbortController();
+      run.ctrl = ctrl;
+      const cameras = [];
+      // 10 samples per second of video: tiles that only show between coarser samples are caught too.
+      for (let T = 0; T <= tl.duration; T += 1 / 10) cameras.push(tl.frame(T).camera);
+      // Planning moves the map's camera; put it back where it was.
+      const saved = { center: map.getCenter(), zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing() };
+      const urls = planTiles(map, cameras);
+      map.jumpTo(saved);
+      if (!freeRef.current) show(tRef.current);
+      let shown = 0;
+      preloadTiles(urls, ctrl.signal, (done, total) => {
+        const now = performance.now();
+        if (done < total && now - shown < 200) return;
+        shown = now;
+        setPreload(done < total ? { done, total } : null);
+      }).catch(() => {});
+    }, 400);
+  }, [show]);
+
+  // Leaving the page: stop preloading and drop the stored tiles.
+  useEffect(
+    () => () => {
+      clearTimeout(preloadRun.current.timer);
+      preloadRun.current.ctrl?.abort();
+      void releaseTiles();
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!ready || !container.current) return;
     // With the terrain grid the timeline knows the ground height under the camera; don't let
@@ -228,6 +278,7 @@ export function FlyoverPage() {
         elevationAt: terrainGrid ? sampler(terrainGrid, NaN) : null,
       });
       show(frac * timelineRef.current.duration);
+      schedulePreload();
     };
     rebuild();
     const ro = new ResizeObserver(() => {
@@ -239,7 +290,7 @@ export function FlyoverPage() {
       ro.disconnect();
       cancelAnimationFrame(pending);
     };
-  }, [ready, a, length, cameraMode, cameraDistance, reduced, exaggeration, terrainGrid, show]);
+  }, [ready, a, length, cameraMode, cameraDistance, reduced, exaggeration, terrainGrid, show, schedulePreload]);
 
   // Free orbit hands the camera to you; the marker keeps playing.
   useEffect(() => {
@@ -342,6 +393,11 @@ export function FlyoverPage() {
             {/* Sized with h-full/w-full: MapLibre makes its container position: relative. */}
             <div ref={container} className={`h-full w-full ${free ? "cursor-grab" : ""}`} />
             <canvas ref={hud} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden />
+            {preload && preload.total > 0 && (
+              <div className="pointer-events-none absolute bottom-10 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/60 px-3 py-1 text-[12px] font-medium text-white/90 tabular" aria-live="polite">
+                Preloading the flight · {Math.round((preload.done / preload.total) * 100)}%
+              </div>
+            )}
           </div>
 
           {(loadingTiles || !ready) && !styleError && <Loading overlay dark label="Loading terrain and imagery…" />}

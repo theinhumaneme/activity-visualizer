@@ -73,6 +73,8 @@ const CACHE_NAME = "export-tiles";
 const MEMORY_BUDGET = 64 * 1024 * 1024;
 
 let store: TileStore | null = null;
+/** URLs already in the store, so planning again (new length, camera…) only fetches what's new. */
+const stored = new Set<string>();
 
 async function openStore(): Promise<TileStore> {
   try {
@@ -143,11 +145,16 @@ export function planTiles(map: MlMap, cameras: PlannedCamera[]): string[] {
       roundZoom: id === terrainId ? false : !!src!.roundZoom,
     }));
   const ratio = map.getPixelRatio();
+  // With 3D terrain MapLibre picks tiles by distance to the elevated ground, so near the camera it
+  // asks for a finer zoom than a flat-ground estimate would. Its covering function accepts the
+  // terrain (not in the public options type); pass it so the plan matches what it will request.
+  const terrain = (map as unknown as { terrain?: unknown }).terrain;
   const urls = new Set<string>();
   for (const cam of cameras) {
     map.jumpTo(cam);
     for (const s of sources) {
-      for (const id of map.coveringTiles({ tileSize: s.tileSize, minzoom: s.minzoom, maxzoom: s.maxzoom, roundZoom: s.roundZoom })) {
+      const options = { tileSize: s.tileSize, minzoom: s.minzoom, maxzoom: s.maxzoom, roundZoom: s.roundZoom, ...(terrain ? { terrain } : {}) };
+      for (const id of map.coveringTiles(options)) {
         urls.add(id.canonical.url(s.tiles, ratio, s.scheme));
         // Terrain also keeps the parent tile in view to fill gaps while children load.
         if (s.terrain && id.canonical.z > s.minzoom) {
@@ -169,16 +176,20 @@ export async function preloadTiles(urls: string[], signal: AbortSignal, onProgre
   installTileRetry();
   store ??= await openStore();
   const s = store;
+  urls = urls.filter((u) => !stored.has(u));
   let next = 0;
   let done = 0;
   onProgress(0, urls.length);
   const worker = async () => {
     while (next < urls.length) {
-      if (signal.aborted) throw new DOMException("Export canceled", "AbortError");
+      if (signal.aborted) throw new DOMException("Preload canceled", "AbortError");
       const url = urls[next++];
       try {
         const res = await fetchWithRetry(url, signal);
-        if (res.ok) await s.put(url, await res.arrayBuffer());
+        if (res.ok) {
+          await s.put(url, await res.arrayBuffer());
+          stored.add(url);
+        }
       } catch (err) {
         if (signal.aborted) throw err;
       }
@@ -192,5 +203,6 @@ export async function preloadTiles(urls: string[], signal: AbortSignal, onProgre
 export async function releaseTiles() {
   const s = store;
   store = null;
+  stored.clear();
   await s?.clear();
 }
