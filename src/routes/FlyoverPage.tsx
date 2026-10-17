@@ -64,6 +64,8 @@ export function FlyoverPage() {
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>("1");
   const [length, setLength] = useState<(typeof LENGTHS)[number]>(25);
   const [frame, setFrame] = useState<FrameState | null>(null);
+  /** When the time label and scrubber last re-rendered during playback. */
+  const uiAt = useRef(0);
   const exaggeration = useMemo(() => autoExaggeration(a), [a]);
 
   const drawOverlay = useCallback(
@@ -99,16 +101,27 @@ export function FlyoverPage() {
     [a, look, routeColor, exaggeration],
   );
 
+  /**
+   * Shows video time T. During playback (`live`), the page's own controls (time label, scrubber)
+   * re-render ~10×/s rather than every frame; the map and the overlay still update every frame.
+   */
   const show = useCallback(
-    (T: number) => {
+    (T: number, live = false) => {
       const tl = timelineRef.current;
       const r = rendererRef.current;
       if (!tl || !r) return;
       tRef.current = Math.min(Math.max(T, 0), tl.duration);
       const f = tl.frame(tRef.current);
       r.apply(f, !freeRef.current);
+      // Render the map now rather than on its next animation frame, so the overlay drawn below
+      // (pins, marker, leader lines) lines up with the terrain in the same frame.
+      mapRef.current?.redraw();
       drawOverlay(f);
-      setFrame(f);
+      const now = performance.now();
+      if (!live || now - uiAt.current > 100) {
+        uiAt.current = now;
+        setFrame(f);
+      }
     },
     [drawOverlay],
   );
@@ -121,8 +134,13 @@ export function FlyoverPage() {
     setLoadingTiles(true);
     setStyleError(null);
     const ro = new ResizeObserver(() => map?.resize());
-    Promise.all([flyoverStyle(lookId, exaggeration), loadHudFonts()])
-      .then(([style]) => {
+    // Fonts only matter for the overlay: don't hold the map back for them, redraw when they land.
+    void loadHudFonts(look).then(() => {
+      const tl = timelineRef.current;
+      if (!cancelled && tl && rendererRef.current) drawOverlay(tl.frame(tRef.current));
+    });
+    flyoverStyle(lookId, exaggeration)
+      .then((style) => {
         if (cancelled || !container.current) return;
         map = new MlMap({
           container: container.current,
@@ -130,6 +148,8 @@ export function FlyoverPage() {
           transformRequest: retryTiles,
           interactive: false,
           maxPitch: 85,
+          // 3× phone screens would draw 2.25× the pixels of 2× for no visible gain on terrain.
+          pixelRatio: Math.min(2, window.devicePixelRatio || 1),
           attributionControl: { compact: true },
           center: [a.samples[0].lon, a.samples[0].lat],
           zoom: 13,
@@ -155,7 +175,7 @@ export function FlyoverPage() {
       mapRef.current = null;
       rendererRef.current = null;
     };
-    // `look` derives from lookId.
+    // `look` and `drawOverlay` derive from lookId and the activity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [a, lookId, exaggeration, attempt]);
 
@@ -165,7 +185,14 @@ export function FlyoverPage() {
     // With the terrain grid the timeline knows the ground height under the camera; don't let
     // MapLibre re-snap it to whichever elevation tile is loaded (that bobs the view).
     mapRef.current?.setCenterClampedToGround(!terrainGrid);
+    let size = "";
+    let pending = 0;
     const rebuild = () => {
+      // Phone browsers resize the page as their toolbar shows and hides; rebuild only when the
+      // map's size really changed, at most once per frame.
+      const key = `${container.current!.clientWidth}x${container.current!.clientHeight}`;
+      if (key === size) return;
+      size = key;
       const prev = timelineRef.current;
       const frac = prev ? tRef.current / prev.duration : 0;
       timelineRef.current = buildTimeline(a, {
@@ -180,9 +207,15 @@ export function FlyoverPage() {
       show(frac * timelineRef.current.duration);
     };
     rebuild();
-    const ro = new ResizeObserver(rebuild);
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(pending);
+      pending = requestAnimationFrame(rebuild);
+    });
     ro.observe(container.current);
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      cancelAnimationFrame(pending);
+    };
   }, [ready, a, length, cameraMode, reduced, exaggeration, terrainGrid, show]);
 
   // Free orbit hands the camera to you; the marker keeps playing.
@@ -213,8 +246,9 @@ export function FlyoverPage() {
       if (!tl) return;
       const T = tRef.current + ((now - last) / 1000) * Number(speed);
       last = now;
-      show(T);
-      if (T >= tl.duration) setPlaying(false);
+      const end = T >= tl.duration;
+      show(T, !end);
+      if (end) setPlaying(false);
       else raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -237,6 +271,8 @@ export function FlyoverPage() {
     const tl = timelineRef.current;
     if (!tl) return;
     if (!playing && tRef.current >= tl.duration - 0.01) show(0);
+    // Pausing: bring the (throttled) time label and scrubber to the exact frame shown.
+    if (playing) show(tRef.current);
     setPlaying((p) => !p);
   }, [playing, show]);
 
