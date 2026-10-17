@@ -7,6 +7,9 @@ import { Chart } from "../Chart";
 import { Card, Explain, Help, Stat } from "../ui";
 import { formatSplitMotion } from "./units";
 
+/** A stable array: a new one each render made Chart rebuild its uPlot instance. */
+const CADENCE_CLIP: [number, number] = [0.02, 0.98];
+
 /** Steps (or pedal strokes) per minute while moving. */
 export function CadenceChart({ a }: { a: Analysis }) {
   const ride = a.activity.kind === "ride";
@@ -21,7 +24,7 @@ export function CadenceChart({ a }: { a: Analysis }) {
       values={values}
       color="--series-cad"
       height={140}
-      clip={[0.02, 0.98]}
+      clip={CADENCE_CLIP}
       formatValue={fmt.value}
       formatTick={fmt.tick}
       aside={

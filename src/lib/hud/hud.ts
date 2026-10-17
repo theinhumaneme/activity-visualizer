@@ -26,20 +26,23 @@ import type { Look } from "../map/style";
 import type { FrameState } from "../playback/timeline";
 
 // The app's typeface, so overlays and exports match the interface. Titles are Inter at a heavier weight.
-export const FONT_SANS = 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+export const FONT_SANS = '"Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 export const FONT_DISPLAY = FONT_SANS;
-export const FONT_SERIF = 'Fraunces, Georgia, "Times New Roman", serif';
+export const FONT_SERIF = '"Fraunces Variable", Fraunces, Georgia, "Times New Roman", serif';
 /** Fraunces ships one weight (600); Inter titles are set heavy. */
 const titleWeight = (family: string) => (family === FONT_SERIF ? 600 : 800);
 
-/** Fonts the HUD needs; await before exporting so the first frames don't use a fallback. */
-export async function loadHudFonts() {
+/**
+ * Fonts the HUD needs; await before exporting so the first frames don't use a fallback. With a
+ * look, Fraunces (only used by serif looks) is skipped unless that look needs it.
+ */
+export async function loadHudFonts(look?: Look) {
   if (typeof document === "undefined" || !document.fonts) return;
   await Promise.allSettled([
-    document.fonts.load(`600 40px Inter`),
-    document.fonts.load(`500 20px Inter`),
-    document.fonts.load(`800 80px Inter`),
-    document.fonts.load(`600 60px Fraunces`),
+    document.fonts.load(`600 40px "Inter Variable"`),
+    document.fonts.load(`500 20px "Inter Variable"`),
+    document.fonts.load(`800 80px "Inter Variable"`),
+    ...(!look || look.titleFont === "serif" ? [document.fonts.load(`600 60px "Fraunces Variable"`)] : []),
   ]);
 }
 
@@ -366,16 +369,19 @@ function liveItems(a: Analysis, i: number): Item[] {
   return out;
 }
 
-/** Elevation profile strip with the playhead; the y-range is labeled because it's truncated. */
-function drawStrip(ctx: CanvasRenderingContext2D, a: Analysis, index: number, x: number, y: number, w: number, h: number, s: number, accent: string, P: Palette) {
-  const total = a.dist[a.n - 1] || 1;
-  const e = a.elev;
+const rangeCache = new WeakMap<Analysis, { lo: number; hi: number }>();
+const stripCache = new WeakMap<Analysis, { key: string; path: Path2D }>();
+
+/** Elevation range for the profile strip (computed once per analysis). */
+function elevRange(a: Analysis) {
+  let r = rangeCache.get(a);
+  if (r) return r;
   let lo = 0;
   let hi = 1;
-  if (e) {
+  if (a.elev) {
     lo = Infinity;
     hi = -Infinity;
-    for (const v of e) {
+    for (const v of a.elev) {
       lo = Math.min(lo, v);
       hi = Math.max(hi, v);
     }
@@ -386,6 +392,16 @@ function drawStrip(ctx: CanvasRenderingContext2D, a: Analysis, index: number, x:
       hi = mid + 5;
     }
   }
+  r = { lo, hi };
+  rangeCache.set(a, r);
+  return r;
+}
+
+/** Elevation profile strip with the playhead; the y-range is labeled because it's truncated. */
+function drawStrip(ctx: CanvasRenderingContext2D, a: Analysis, index: number, x: number, y: number, w: number, h: number, s: number, accent: string, P: Palette) {
+  const total = a.dist[a.n - 1] || 1;
+  const e = a.elev;
+  const { lo, hi } = elevRange(a);
   const stride = Math.max(1, Math.floor(a.n / 400));
   const px = (i: number) => x + (a.dist[i] / total) * w;
   const py = (i: number) => (e ? y + h - ((e[i] - lo) / (hi - lo)) * h * 0.9 : y + h * 0.6);
@@ -398,9 +414,21 @@ function drawStrip(ctx: CanvasRenderingContext2D, a: Analysis, index: number, x:
     ctx.closePath();
   };
   const now = Math.min(a.n - 1, Math.max(0, Math.round(index)));
-  path(a.n - 1);
+  // The full-profile background never changes during playback: build its path once.
+  const key = `${x}|${y}|${w}|${h}`;
+  const cache = stripCache.get(a);
+  let bg = cache?.key === key ? cache.path : null;
+  if (!bg) {
+    bg = new Path2D();
+    bg.moveTo(px(0), y + h);
+    for (let i = 0; i <= a.n - 1; i += stride) bg.lineTo(px(i), py(i));
+    bg.lineTo(px(a.n - 1), py(a.n - 1));
+    bg.lineTo(px(a.n - 1), y + h);
+    bg.closePath();
+    stripCache.set(a, { key, path: bg });
+  }
   ctx.fillStyle = withAlpha(P.lo, 0.35);
-  ctx.fill();
+  ctx.fill(bg);
   path(now);
   ctx.fillStyle = withAlpha(accent, 0.45);
   ctx.fill();
@@ -483,10 +511,18 @@ function drawDisclosure(ctx: CanvasRenderingContext2D, W: number, s: number, f: 
   if (f.rate > 1.5) parts.push(`TIME ×${Math.round(f.rate)}`);
   if (Math.abs(o.exaggeration - 1) > 0.01) parts.push(`TERRAIN ×${o.exaggeration.toFixed(1)}`);
   if (!parts.length) return;
+  const text = parts.join("  ·  ");
+  const y = portrait ? safeTop - 16 * s : pad + 14 * s;
+  const top = Math.floor(y - 40 * s);
   ctx.save();
-  textShadow(ctx, s, P);
   ctx.globalAlpha = f.fx.hud * 0.9;
-  spaced(ctx, parts.join("  ·  "), W - pad, (portrait ? safeTop - 16 * s : pad + 14 * s), 15 * s, P.mid, 600, "right");
+  // The text changes only when the rounded rate does: stamp a cached rendering (shadow included).
+  stamp(ctx, `disclosure|${W}|${text}|${y}|${P.mid}|${P.scrim}`, 0, top, W, Math.ceil(70 * s), (c) => {
+    c.save();
+    textShadow(c, s, P);
+    spaced(c, text, W - pad, y, 15 * s, P.mid, 600, "right");
+    c.restore();
+  });
   ctx.restore();
 }
 
@@ -585,6 +621,12 @@ function endStats(a: Analysis): Item[] {
 }
 
 function drawFooter(ctx: CanvasRenderingContext2D, W: number, H: number, s: number, o: HudOptions, P: Palette) {
+  // Identical on every frame: drawn once (shadow and all) and stamped.
+  const top = H - 50 * s;
+  stamp(ctx, `footer|${W}|${H}|${o.attribution}|${P.mid}|${P.scrim}`, 0, top, W, H - top, (c) => drawFooterText(c, W, H, s, o, P));
+}
+
+function drawFooterText(ctx: CanvasRenderingContext2D, W: number, H: number, s: number, o: HudOptions, P: Palette) {
   ctx.save();
   textShadow(ctx, s, P);
   ctx.font = `500 ${14 * s}px ${FONT_SANS}`;
@@ -657,16 +699,15 @@ function panel(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
  * to keep numbers from jittering as they change. Returns the drawn width.
  */
 export function tabular(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, align: "left" | "center" | "right" = "left"): number {
-  let adv = 0;
-  for (const d of "0123456789") adv = Math.max(adv, ctx.measureText(d).width);
-  const widths = [...text].map((ch) => (ch >= "0" && ch <= "9" ? adv : ctx.measureText(ch).width));
+  const adv = digitAdvance(ctx);
+  const widths = [...text].map((ch) => (ch >= "0" && ch <= "9" ? adv : glyphWidth(ctx, ch)));
   const total = widths.reduce((p, q) => p + q, 0);
   let cx = align === "center" ? x - total / 2 : align === "right" ? x - total : x;
   const prev = ctx.textAlign;
   ctx.textAlign = "left";
   [...text].forEach((ch, k) => {
     const w = widths[k];
-    const cw = ctx.measureText(ch).width;
+    const cw = glyphWidth(ctx, ch);
     ctx.fillText(ch, cx + (w - cw) / 2, y);
     cx += w;
   });
@@ -691,7 +732,7 @@ export function spaced(
   ctx.textAlign = "left";
   const track = size * 0.08;
   const chars = [...text];
-  const widths = chars.map((c) => ctx.measureText(c).width);
+  const widths = chars.map((c) => glyphWidth(ctx, c));
   const total = widths.reduce((p, q) => p + q, 0) + track * (chars.length - 1);
   let cx = align === "center" ? x - total / 2 : align === "right" ? x - total : x;
   chars.forEach((c, k) => {
@@ -699,6 +740,62 @@ export function spaced(
     cx += widths[k] + track;
   });
   ctx.restore();
+}
+
+// Glyph widths per font, measured once: the HUD draws the same few characters every frame.
+const widthCache = new Map<string, number>();
+function glyphWidth(ctx: CanvasRenderingContext2D, ch: string) {
+  const key = `${ctx.font}|${ch}`;
+  let w = widthCache.get(key);
+  if (w === undefined) {
+    w = ctx.measureText(ch).width;
+    widthCache.set(key, w);
+  }
+  return w;
+}
+
+/** The widest digit in the current font (the fixed advance for tabular figures). */
+function digitAdvance(ctx: CanvasRenderingContext2D) {
+  const key = `${ctx.font}|#digits`;
+  let adv = widthCache.get(key);
+  if (adv === undefined) {
+    adv = 0;
+    for (const d of "0123456789") adv = Math.max(adv, glyphWidth(ctx, d));
+    widthCache.set(key, adv);
+  }
+  return adv;
+}
+
+/** Cached renderings of HUD pieces that don't change between frames, keyed by what they show. */
+const stamps = new Map<string, HTMLCanvasElement | OffscreenCanvas>();
+const MAX_STAMPS = 24;
+
+/**
+ * Draws `draw` (in canvas coordinates) once into a cached w×h canvas covering (x, y), then copies
+ * that onto ctx: shadow-blurred text costs one image copy per frame instead of a blur per glyph.
+ */
+function stamp(ctx: CanvasRenderingContext2D, key: string, x: number, y: number, w: number, h: number, draw: (c: CanvasRenderingContext2D) => void) {
+  const X = Math.floor(x);
+  const Y = Math.floor(y);
+  const cw = Math.max(1, Math.ceil(w));
+  const ch = Math.max(1, Math.ceil(h));
+  let canvas = stamps.get(key);
+  if (!canvas) {
+    canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(cw, ch) : Object.assign(document.createElement("canvas"), { width: cw, height: ch });
+    const c = canvas.getContext("2d") as CanvasRenderingContext2D | null;
+    if (!c) {
+      // No 2D context (out of memory): draw directly.
+      draw(ctx);
+      return;
+    }
+    c.translate(-X, -Y);
+    c.textBaseline = ctx.textBaseline;
+    c.lineJoin = ctx.lineJoin;
+    draw(c);
+    if (stamps.size >= MAX_STAMPS) stamps.delete(stamps.keys().next().value!);
+    stamps.set(key, canvas);
+  }
+  ctx.drawImage(canvas, X, Y);
 }
 
 function truncate(ctx: CanvasRenderingContext2D, text: string, max: number) {

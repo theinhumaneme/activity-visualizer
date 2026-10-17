@@ -4,7 +4,7 @@
 //   node scripts/make-demo.mjs <source.tcx> [out.tcx]
 import { readFileSync, writeFileSync } from "node:fs";
 
-const [src, out = "public/samples/reservoir-loop.tcx"] = process.argv.slice(2);
+const [src, out = "public/samples/reservoir-loop.tcx.xml"] = process.argv.slice(2);
 if (!src) {
   console.error("usage: node scripts/make-demo.mjs <source.tcx> [out.tcx]");
   process.exit(1);

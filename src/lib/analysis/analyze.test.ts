@@ -83,7 +83,7 @@ describe.skipIf(!existsSync(PRIVATE_TCX))("analysis of the Google Health run", (
 });
 
 describe("sample run", () => {
-  const activity = load("public/samples/reservoir-loop.tcx");
+  const activity = load("public/samples/reservoir-loop.tcx.xml");
   const a = analyze(activity, defaultSettings(activity, "imperial"), null);
   it("analyzes in miles with cadence", () => {
     expect(a.splits[0].distance).toBeCloseTo(1609.344, 1);

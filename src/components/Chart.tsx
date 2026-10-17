@@ -72,7 +72,7 @@ interface Props {
 }
 
 const resolve = (c: string) => (c.startsWith("--") ? cssVar(c) : c);
-export const CHART_FONT = 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+export const CHART_FONT = '"Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 
 /** X values for the charts: distance in display units, or seconds. Shared so custom layers line up. */
 export function useChartX(forceDistance = false) {

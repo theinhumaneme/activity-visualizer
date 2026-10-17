@@ -2,7 +2,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { type LayerSpecification, type StyleSpecification, addProtocol, setWorkerUrl } from "maplibre-gl";
 // MapLibre computes its worker URL relative to its own module, which breaks once bundled.
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
-import mlcontour from "maplibre-contour";
+// maplibre-contour (~25 KB gzipped) is only for the Editorial look: imported when that look is built.
+import type mlcontourModule from "maplibre-contour";
 import type { MapTheme } from "./route";
 
 setWorkerUrl(workerUrl);
@@ -296,10 +297,11 @@ async function nightStyle(exaggeration: number): Promise<StyleSpecification> {
   return style;
 }
 
-let contours: InstanceType<typeof mlcontour.DemSource> | null = null;
+let contours: InstanceType<typeof mlcontourModule.DemSource> | null = null;
 /** Contour lines generated in a worker from the same terrain tiles (no extra provider). */
-function contourSource() {
+async function contourSource() {
   if (!contours) {
+    const { default: mlcontour } = await import("maplibre-contour");
     contours = new mlcontour.DemSource({ url: tiles("terrain")[0], encoding: "terrarium", maxzoom: 13, worker: true });
     contours.setupMaplibre({ addProtocol } as never);
   }
@@ -317,7 +319,7 @@ async function editorialStyle(exaggeration: number): Promise<StyleSpecification>
   const style = await fetchStyle(LIGHT_STYLE_URL);
   declutter(style, /^(water_name_(point|line)_label|highway-name-major|label_(village|town|city|city_capital))$/, "#5b5a55", "rgba(255,255,255,0.9)");
   style.sources.dem = demSource();
-  style.sources.contours = { type: "vector", tiles: [contourSource()], maxzoom: 15 };
+  style.sources.contours = { type: "vector", tiles: [await contourSource()], maxzoom: 15 };
   const firstRoad = /^(highway|road|tunnel|bridge|railway|building)/;
   insertBefore(
     style,

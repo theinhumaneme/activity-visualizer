@@ -3,7 +3,7 @@ import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { ingestFile } from "./ingest";
 
-const SAMPLE = "public/samples/reservoir-loop.tcx";
+const SAMPLE = "public/samples/reservoir-loop.tcx.xml";
 
 describe("ingestFile", () => {
   it("reads a plain TCX into one light record", async () => {

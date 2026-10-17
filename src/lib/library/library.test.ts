@@ -366,7 +366,7 @@ function fromFile(path: string, id: string) {
 }
 
 describe("records from the sample file", () => {
-  const { a, rec } = fromFile("public/samples/reservoir-loop.tcx", "sample");
+  const { a, rec } = fromFile("public/samples/reservoir-loop.tcx.xml", "sample");
 
   it("keeps summary numbers and a small track", () => {
     expect(rec.distance).toBeCloseTo(a.summary.distance, 6);

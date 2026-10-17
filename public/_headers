@@ -1,0 +1,10 @@
+# Static asset headers (Cloudflare Workers Static Assets). Default is max-age=0, must-revalidate,
+# which costs a round trip per file on every visit.
+
+# Build output: file names change whenever the content does, so cache for a year, no re-checks.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The sample activity changes rarely; revalidate after a day.
+/samples/*
+  Cache-Control: public, max-age=86400

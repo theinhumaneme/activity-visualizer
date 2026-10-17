@@ -5,7 +5,7 @@ import { parseActivityFile } from "./index";
 
 const PRIVATE_TCX = "tests/fixtures/private/Lunch_Run.tcx";
 const PRIVATE_GPX = "tests/fixtures/private/Lunch_Run.gpx";
-const SAMPLE = "public/samples/reservoir-loop.tcx";
+const SAMPLE = "public/samples/reservoir-loop.tcx.xml";
 const hasPrivate = existsSync(PRIVATE_TCX) && existsSync(PRIVATE_GPX);
 
 describe.skipIf(!hasPrivate)("Google Health TCX (private fixture)", () => {

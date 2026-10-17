@@ -12,7 +12,7 @@ import type { Activity } from "../lib/parse/types";
 import { boundsOf } from "../lib/geo/geo";
 import { type TerrainGrid, gridPoints } from "../lib/geo/terrainGrid";
 
-export const SAMPLE_URL = "/samples/reservoir-loop.tcx";
+export const SAMPLE_URL = "/samples/reservoir-loop.tcx.xml";
 export const SAMPLE_NAME = "Reservoir Loop (sample).tcx";
 const SESSION_KEY = "rv:last-file";
 const UNITS_KEY = "rv:units";

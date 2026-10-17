@@ -5,7 +5,7 @@ import { parseActivityFile } from "../parse";
 import { atIndex } from "../analysis/series";
 import { buildTimeline } from "./timeline";
 
-const activity = parseActivityFile(readFileSync("public/samples/reservoir-loop.tcx", "utf8"), "reservoir-loop.tcx")[0];
+const activity = parseActivityFile(readFileSync("public/samples/reservoir-loop.tcx.xml", "utf8"), "reservoir-loop.tcx")[0];
 const a = analyze(activity, defaultSettings(activity, "metric", 200), null);
 const opts = { followSeconds: 25, width: 540, height: 960, exaggeration: 1.5 };
 const wrap = (d: number) => ((((d + 180) % 360) + 360) % 360) - 180;
