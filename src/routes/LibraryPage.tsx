@@ -114,7 +114,7 @@ export function LibraryPage() {
   ].filter(Boolean) as string[];
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:py-8">
+    <div className="enter mx-auto max-w-7xl px-4 py-6 sm:py-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <div className="label-caps text-accent">Library</div>
@@ -153,7 +153,7 @@ export function LibraryPage() {
             </button>
           </div>
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
-            <div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${(100 * progress.done) / Math.max(1, progress.total)}%` }} />
+            <div className="h-full origin-left rounded-full bg-accent transition-transform" style={{ transform: `scaleX(${progress.done / Math.max(1, progress.total)})` }} />
           </div>
           <p className="mt-2 text-xs text-muted">Parsed and analyzed on your device, three at a time. Nothing is uploaded.</p>
         </div>

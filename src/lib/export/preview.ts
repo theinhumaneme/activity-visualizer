@@ -17,6 +17,9 @@ const GROUND: Record<LookId, [string, string]> = {
   golden: ["#3d2814", "#120a05"],
   editorial: ["#f6f2ea", "#e4ddcf"],
   satellite: ["#2a3a2e", "#0e1510"],
+  noir: ["#3a3b3d", "#0c0c0d"],
+  bluehour: ["#1d2a55", "#0a0f22"],
+  blueprint: ["#163a66", "#0c2340"],
 };
 
 /** A moving sample near PROGRESS whose speed is closest to the average, so the stats look typical. */

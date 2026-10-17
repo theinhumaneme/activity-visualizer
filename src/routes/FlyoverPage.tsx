@@ -9,17 +9,15 @@ import { COLOR_MODES, modeAvailable } from "../lib/map/route";
 import { LOOKS, type LookId, flyoverStyle } from "../lib/map/style";
 import { retryTiles } from "../lib/map/tileFetch";
 import { FlyoverRenderer, addFlyoverLayers } from "../lib/playback/renderer";
-import { type FrameState, type Timeline, autoExaggeration, buildTimeline } from "../lib/playback/timeline";
+import { CAMERA_OPTIONS, type CameraMode, type FrameState, type Timeline, autoExaggeration, buildTimeline } from "../lib/playback/timeline";
 import { DEFAULT_PRIVACY_RADIUS, useStore } from "../state/store";
 
 const LENGTHS = [15, 25, 45] as const;
 const SPEEDS = ["0.5", "1", "2", "4"] as const;
-const MODES = [
-  { value: "cinematic", label: "Cinematic" },
-  { value: "chase", label: "Chase" },
-  { value: "overhead", label: "Overhead" },
-  { value: "free", label: "Free orbit" },
-] as const;
+const MODES: { value: CameraMode | "free"; label: string; title: string }[] = [
+  ...CAMERA_OPTIONS,
+  { value: "free", label: "Free orbit", title: "You steer the camera; the run keeps playing" },
+];
 
 const reducedQuery = typeof matchMedia === "undefined" ? null : matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -286,7 +284,7 @@ export function FlyoverPage() {
       } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
         show(tRef.current + (e.key === "ArrowLeft" ? -5 : 5));
-      } else if (/^[1-5]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      } else if (/^[1-8]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {
         const m = COLOR_MODES[Number(e.key) - 1].mode;
         if (modeAvailable(a, m)) setColorMode(m);
       }
@@ -416,7 +414,7 @@ export function FlyoverPage() {
       </div>
       <p className="mt-3 text-label text-muted">
         <kbd className="font-sans font-semibold text-ink-2">Space</kbd> plays and pauses · <kbd className="font-sans font-semibold text-ink-2">← →</kbd> seek 5 s ·{" "}
-        <kbd className="font-sans font-semibold text-ink-2">1–5</kbd> switch route color. Terrain ×{exaggeration.toFixed(1)}
+        <kbd className="font-sans font-semibold text-ink-2">1–8</kbd> switch route color. Terrain ×{exaggeration.toFixed(1)}
         {tl ? ` · about ${Math.round(tl.compression)}× real time` : ""}.{" "}
         {!terrainGrid && "Camera clearance uses the route's own elevation until terrain data loads."}
       </p>

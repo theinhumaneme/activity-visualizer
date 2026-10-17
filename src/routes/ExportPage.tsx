@@ -6,7 +6,7 @@ import { drawExportPreview } from "../lib/export/preview";
 import { formatDuration } from "../lib/format/format";
 import { loadHudFonts } from "../lib/hud/hud";
 import { LOOKS, type LookId } from "../lib/map/style";
-import { type CameraMode, autoExaggeration } from "../lib/playback/timeline";
+import { CAMERA_OPTIONS, type CameraMode, autoExaggeration } from "../lib/playback/timeline";
 import { useStore } from "../state/store";
 
 const ASPECTS: { value: Aspect; label: string; name: string; hint: string; box: [number, number] }[] = [
@@ -151,7 +151,7 @@ export function ExportPage() {
                         role="radio"
                         aria-checked={on}
                         onClick={() => setAspect(o.value)}
-                        className={`relative flex flex-col items-start gap-2 rounded-control border p-3 text-left transition-colors duration-150 ${
+                        className={`lift flex flex-col items-start gap-2 rounded-control border p-3 text-left ${
                           on ? "border-accent bg-accent/8 ring-1 ring-accent" : "border-line bg-surface text-ink-2 hover:border-muted"
                         }`}
                       >
@@ -163,7 +163,7 @@ export function ExportPage() {
                           <span className="hidden text-label text-muted sm:block">{o.hint}</span>
                         </span>
                         {on && (
-                          <span className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-accent-strong text-white">
+                          <span className="pop absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-accent-strong text-white">
                             <Check className="h-3 w-3" />
                           </span>
                         )}
@@ -221,11 +221,7 @@ export function ExportPage() {
                       label="Camera"
                       value={mode}
                       onChange={setMode}
-                      options={[
-                        { value: "cinematic", label: "Cinematic", disabled: reduced },
-                        { value: "chase", label: "Chase", disabled: reduced },
-                        { value: "overhead", label: "Overhead" },
-                      ]}
+                      options={CAMERA_OPTIONS.map((o) => ({ ...o, disabled: reduced && o.value !== "overhead" }))}
                     />
                   </ControlRow>
                   <ControlRow label="Overlays">
@@ -272,9 +268,9 @@ export function ExportPage() {
           aside={!result && !rendering ? "A still of your options; rendering adds the 3D map" : undefined}
         >
           {result ? (
-            <div className="flex flex-col items-center">
+            <div className="enter flex flex-col items-center">
               <div className="mb-4 flex w-full items-center gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-good/15 text-good" aria-hidden>
+                <span className="pop flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-good/15 text-good [animation-delay:150ms]" aria-hidden>
                   <Check className="h-4 w-4" />
                 </span>
                 <div className="min-w-0">
@@ -334,7 +330,7 @@ export function ExportPage() {
                     <span className="font-semibold tabular">{Math.round(pct * 100)}%</span>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-label="Render progress" aria-valuenow={Math.round(pct * 100)} aria-valuemin={0} aria-valuemax={100}>
-                    <div className="h-2 rounded-full bg-accent transition-[width] duration-300" style={{ width: `${pct * 100}%` }} />
+                    <div className="h-2 origin-left rounded-full bg-accent transition-transform duration-300 ease-out" style={{ transform: `scaleX(${pct})` }} />
                   </div>
                   <p className="mt-2 text-center text-label text-muted tabular">
                     {progress?.stage === "frames"

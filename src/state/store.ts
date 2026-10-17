@@ -20,7 +20,7 @@ const UNITS_KEY = "rv:units";
 const ROUTE_COLOR_KEY = "rv:route-color";
 const PRIVACY_KEY = "rv:privacy-radius";
 const LOOK_KEY = "rv:look";
-const LOOK_IDS: LookId[] = ["night", "golden", "editorial", "satellite"];
+const LOOK_IDS: LookId[] = ["night", "golden", "editorial", "satellite", "noir", "bluehour", "blueprint"];
 
 function storedLook(): LookId {
   try {

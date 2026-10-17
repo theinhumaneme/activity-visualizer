@@ -36,7 +36,7 @@ export function HeartRateChart({ a }: { a: Analysis }) {
             <>
               {" "}
               <Tag tone="warning" title="Zones use an estimated max heart rate">
-                zones estimated
+                Zones estimated
               </Tag>
             </>
           )}
@@ -59,7 +59,7 @@ export function ZoneBreakdown({ a }: { a: Analysis }) {
       title={
         <span className="flex items-center gap-2">
           Time in zones
-          {st.maxHrEstimated && <Tag tone="warning">estimated</Tag>}
+          {st.maxHrEstimated && <Tag tone="warning">Estimated</Tag>}
         </span>
       }
       aside={

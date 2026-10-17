@@ -31,7 +31,7 @@ function AuditItem({ q }: { q: QualityItem }) {
     <li>
       <details className="group">
         <summary className="flex items-start gap-3 rounded-control px-2 py-2.5 transition-colors hover:bg-surface-2">
-          <span className="mt-0.5 w-[5.25rem] shrink-0">
+          <span className="mt-0.5 w-[5.75rem] shrink-0">
             <Badge tone={lvl.tone} icon={<LevelIcon level={q.level} className="h-3 w-3" />}>
               {lvl.label}
             </Badge>
@@ -39,7 +39,7 @@ function AuditItem({ q }: { q: QualityItem }) {
           <span className="min-w-0 flex-1 font-medium break-words tabular">{q.title}</span>
           <Chevron className="mt-1 text-muted" />
         </summary>
-        <p className="disclosure-body pb-3 pl-2 pr-8 text-[15px] leading-relaxed text-ink-2 break-words sm:pl-[6.75rem]">{q.detail}</p>
+        <p className="disclosure-body pb-3 pl-2 pr-8 text-[15px] leading-relaxed text-ink-2 break-words sm:pl-[7.25rem]">{q.detail}</p>
       </details>
     </li>
   );
@@ -199,7 +199,7 @@ export function CheckPage() {
 
               {a.zones.length > 0 && (
                 <section className="border-t border-grid pt-6">
-                  <GroupHeading aside={settings.maxHrEstimated && <Tag tone="warning">estimated</Tag>}>Heart rate</GroupHeading>
+                  <GroupHeading aside={settings.maxHrEstimated && <Tag tone="warning" title="Not reached in this file: set your real max for accurate zones">Estimated</Tag>}>Heart rate</GroupHeading>
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-3">
                       <Field label="Max">

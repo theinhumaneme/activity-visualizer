@@ -17,7 +17,38 @@ import { type Bounds, type LngLat, boundsCenter, boundsOf, fitZoom, toDeg, toRad
 import type { ElevationAt } from "../geo/terrainGrid";
 import { SPORTS } from "../sport";
 
-export type CameraMode = "cinematic" | "chase" | "overhead";
+export type CameraMode = "cinematic" | "chase" | "overhead" | "drone" | "side" | "orbit" | "low";
+
+/**
+ * How each chase camera sits relative to the athlete: pitch (0 = straight down), distance as a
+ * multiple of the sport's base, and where it faces. "heading" rides behind; "side" looks across
+ * the route so the athlete runs left to right; "orbit" circles steadily; "north" stays north-up.
+ */
+const RIGS: Record<CameraMode, { pitch: number; dist: number; face: "heading" | "side" | "orbit" | "north" }> = {
+  cinematic: { pitch: 60, dist: 1, face: "heading" },
+  chase: { pitch: 60, dist: 1, face: "heading" },
+  // Top-down needs more height to show the same stretch of route as an oblique chase.
+  overhead: { pitch: 0, dist: 2.6, face: "north" },
+  // High and wide, like a drone trailing well behind.
+  drone: { pitch: 42, dist: 2.1, face: "heading" },
+  side: { pitch: 56, dist: 1.15, face: "side" },
+  orbit: { pitch: 52, dist: 1.3, face: "orbit" },
+  // Near the ground and close in, with the horizon in frame.
+  low: { pitch: 73, dist: 0.62, face: "heading" },
+};
+/** Orbit camera's turn rate, degrees per video second. */
+const ORBIT_RATE = 11;
+
+/** Camera choices in display order, shared by the flyover and export pages. */
+export const CAMERA_OPTIONS: { value: CameraMode; label: string; title: string }[] = [
+  { value: "cinematic", label: "Cinematic", title: "Chase with swoops and orbits around the highlights" },
+  { value: "chase", label: "Chase", title: "Steady, just behind and above" },
+  { value: "drone", label: "Drone", title: "High and wide, trailing well behind" },
+  { value: "low", label: "Low", title: "Close to the ground, horizon in view" },
+  { value: "side", label: "Side-on", title: "Tracking alongside, left to right" },
+  { value: "orbit", label: "Orbit", title: "Slowly circling as you go" },
+  { value: "overhead", label: "Overhead", title: "Straight down, north up" },
+];
 
 export interface Camera {
   center: LngLat;
@@ -149,6 +180,7 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
   const mode: CameraMode = reduced ? "overhead" : (opts.mode ?? "cinematic");
   const cinematic = mode === "cinematic";
   const overhead = mode === "overhead";
+  const rig = RIGS[mode];
   const exag = opts.exaggeration ?? 1;
   const fov = opts.fov ?? 36.87;
   const W_PX = Math.max(1, opts.width);
@@ -347,7 +379,7 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
   const portrait = H_PX > W_PX * 1.05;
   // Camera distance suits the sport: close for a swim or a walk, further back for a ride.
   const baseD = SPORTS[a.activity.kind].cameraDistance * Math.min(4, Math.max(1, Math.sqrt(extent / 3000))) * (portrait ? 1.12 : 1);
-  const chasePitch = overhead ? 0 : 60;
+  const chasePitch = rig.pitch;
   const lookAhead = Math.min(400, Math.max(150, baseD * 0.45));
   // The athlete sits on the vertical centerline at this height: above the stats panel, never under it.
   const subjectY = opts.subjectY ?? (portrait ? 0.54 : 0.58);
@@ -373,13 +405,18 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
     return { push, orbit };
   };
 
+  const orbitFrom = headingAt(d0, lookAhead);
+  const facing = (d: number, T: number) => {
+    if (rig.face === "north") return 0;
+    if (rig.face === "orbit") return orbitFrom + (T - Tc) * ORBIT_RATE;
+    return headingAt(d, lookAhead) + (rig.face === "side" ? -90 : 0);
+  };
   const chasePose = (T: number): Pose => {
     const d = distAtT(T);
-    // Top-down needs more height to show the same stretch of route as an oblique chase.
-    const D = baseD * (overhead ? 2.6 : 1) * (1 + Math.min(0.8, screenSpeed(T) / 1100));
+    const D = baseD * rig.dist * (1 + Math.min(0.8, screenSpeed(T) / 1100));
     const { push, orbit } = momentBump(T);
     return {
-      bearing: overhead ? 0 : headingAt(d, lookAhead) + orbit * 50,
+      bearing: facing(d, T) + orbit * 50,
       pitch: chasePitch - orbit * 6,
       logD: Math.log(D * (1 - push)),
     };

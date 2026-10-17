@@ -24,7 +24,6 @@ const AnalysisPage = lazy(() => pages["/analysis"]().then((m) => ({ default: m.A
 const FlyoverPage = lazy(() => pages["/flyover"]().then((m) => ({ default: m.FlyoverPage })));
 const ExportPage = lazy(() => pages["/export"]().then((m) => ({ default: m.ExportPage })));
 const LibraryPage = lazy(() => pages["/library"]().then((m) => ({ default: m.LibraryPage })));
-const loading = <p className="p-8 text-center text-muted">Loading…</p>;
 
 // After a refresh on a later step, fetch its code right away, alongside restoring the activity,
 // instead of after it.
@@ -54,7 +53,8 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
       <PrefetchNext />
-      <Suspense fallback={loading}>
+      {/* Pages suspend inside Layout, which shows their skeleton; nothing else here suspends. */}
+      <Suspense fallback={null}>
         <Routes>
           <Route element={<Layout />}>
             <Route index element={<UploadPage />} />

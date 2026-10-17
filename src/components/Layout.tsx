@@ -1,10 +1,10 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { useLibrary } from "../state/library";
 import { useStore } from "../state/store";
 import { type ThemePref, useTheme } from "../state/theme";
 import { STEPS } from "./steps";
-import { Check, Chevron, Segmented } from "./ui";
+import { Check, Chevron, PageSkeleton, Segmented } from "./ui";
 
 const REPO = "https://github.com/theinhumaneme/activity-visualizer";
 
@@ -64,7 +64,7 @@ export function Layout() {
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <header ref={header} className="sticky top-0 z-30 border-b border-grid bg-page/90 backdrop-blur-md">
+      <header ref={header} className="header-shade sticky top-0 z-30 border-b border-grid bg-page/90 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-2.5 sm:px-6 lg:gap-5">
           <Link to="/" className="flex shrink-0 items-center gap-2 rounded-md font-semibold tracking-[-0.01em]">
             <img src="/favicon.svg" alt="" className="h-7 w-7" />
@@ -95,7 +95,10 @@ export function Layout() {
         <CompactSteps states={states} />
       </header>
       <main className="flex-1">
-        <Outlet />
+        {/* Inside the layout, so the header stays put while a page's code loads. */}
+        <Suspense fallback={<PageSkeleton />}>
+          <Outlet />
+        </Suspense>
       </main>
       <footer className="border-t border-grid px-4 py-6 text-center text-label text-muted">
         <p>Your files are processed in your browser and never uploaded.</p>
@@ -118,7 +121,7 @@ function StepMark({ state, n }: { state: StepState; n: number }) {
   const base = "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold tabular";
   if (state === "done")
     return (
-      <span className={`${base} bg-good/15 text-good`}>
+      <span className={`${base} pop bg-good/15 text-good`}>
         <Check className="h-3 w-3" />
       </span>
     );
@@ -214,7 +217,7 @@ function CompactSteps({ states }: { states: StepState[] }) {
             <span className="font-semibold text-ink">{STEPS[current].label}</span>
             <span className="sr-only">, {done} done. Show all steps</span>
           </span>
-          <Chevron className={`ml-auto text-ink-2 transition-transform ${open ? "rotate-90" : ""}`} />
+          <Chevron className={`ml-auto text-ink-2 transition-transform duration-200 ${open ? "rotate-90" : ""}`} />
         </button>
         {prev && (
           <Link to={prev.path} className="btn btn-quiet btn-sm hidden !px-2.5 sm:inline-flex" aria-label={`Back to ${prev.label}`}>
@@ -228,7 +231,7 @@ function CompactSteps({ states }: { states: StepState[] }) {
         )}
       </div>
       {open && (
-        <nav id="step-menu" aria-label="Steps" className="absolute inset-x-0 top-full border-b border-grid bg-surface shadow-[var(--shadow-pop)]">
+        <nav id="step-menu" aria-label="Steps" className="drop-in absolute inset-x-0 top-full border-b border-grid bg-surface shadow-[var(--shadow-pop)]">
           <ol className="mx-auto grid max-w-7xl gap-0.5 px-4 py-2 sm:grid-cols-2 sm:px-6">
             {STEPS.map((step, i) => {
               const state = states[i];

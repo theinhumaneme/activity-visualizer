@@ -1,7 +1,7 @@
 import { ColorModePicker } from "../components/ColorModePicker";
 import { RouteMap } from "../components/RouteMap";
 import { SummaryHeader, startLine } from "../components/analysis/SummaryHeader";
-import { Card, NextStep, Page, Value } from "../components/ui";
+import { Card, NextStep, Page, Value, stagger } from "../components/ui";
 import { useStore } from "../state/store";
 
 const FEATURED = 3;
@@ -24,8 +24,8 @@ export function OverviewPage() {
         {a.insights.length > 0 && (
           <Card title="Highlights">
             <ul className="space-y-2.5">
-              {featured.map((h) => (
-                <li key={h.title} className="flex items-start justify-between gap-4 rounded-control bg-surface-2 px-4 py-3.5">
+              {featured.map((h, k) => (
+                <li key={h.title} style={stagger(k + 3)} className="enter flex items-start justify-between gap-4 rounded-control bg-surface-2 px-4 py-3.5">
                   <div className="min-w-0">
                     <h3 className="font-semibold">{h.title}</h3>
                     <p className="mt-0.5 text-sm leading-relaxed text-ink-2">{h.text}</p>

@@ -2,7 +2,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { type LayerSpecification, type StyleSpecification, addProtocol, setWorkerUrl } from "maplibre-gl";
 // MapLibre computes its worker URL relative to its own module, which breaks once bundled.
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
-// maplibre-contour (~25 KB gzipped) is only for the Editorial look: imported when that look is built.
+// maplibre-contour (~25 KB gzipped) is only for the Editorial and Blueprint looks: imported when one is built.
 import type mlcontourModule from "maplibre-contour";
 import type { MapTheme } from "./route";
 
@@ -37,7 +37,7 @@ export const LIGHT_STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
 // Flyover looks
 // ---------------------------------------------------------------------------------------------
 
-export type LookId = "night" | "golden" | "editorial" | "satellite";
+export type LookId = "night" | "golden" | "editorial" | "satellite" | "noir" | "bluehour" | "blueprint";
 
 export interface Look {
   id: LookId;
@@ -98,6 +98,37 @@ export const LOOKS: Record<LookId, Look> = {
     titleFont: "display",
     attribution: () => `${strip(satelliteAttribution)} · ${strip(OSM_ATTRIBUTION)}`,
   },
+  noir: {
+    id: "noir",
+    label: "Noir",
+    hud: "dark",
+    ramp: "dark",
+    casing: "#000000",
+    titleFont: "display",
+    attribution: () => `${strip(satelliteAttribution)} · ${strip(OSM_ATTRIBUTION)}`,
+  },
+  bluehour: {
+    id: "bluehour",
+    label: "Blue Hour",
+    hud: "dark",
+    ramp: "dark",
+    solid: "#ffffff",
+    glow: "#6f8bff",
+    casing: "#0a1030",
+    titleFont: "display",
+    attribution: () => `${strip(satelliteAttribution)} · ${strip(OSM_ATTRIBUTION)}`,
+  },
+  blueprint: {
+    id: "blueprint",
+    label: "Blueprint",
+    hud: "dark",
+    ramp: "dark",
+    solid: "#ffffff",
+    glow: "#4fc3ff",
+    casing: "#0a1c36",
+    titleFont: "display",
+    attribution: () => `${strip(OFM_ATTRIBUTION)} · ${strip(OSM_ATTRIBUTION)} · ${TERRAIN_ATTRIBUTION}`,
+  },
 };
 
 const FONT = ["Noto Sans Regular"];
@@ -157,27 +188,73 @@ function imageryLabels(halo: string, text: string): LayerSpecification[] {
   ];
 }
 
-/**
- * Satellite imagery + 3D terrain + sky, with upright vector labels like Strava's flyover.
- * `warm` grades it for Golden Hour: warmer imagery, an amber wash, amber fog.
- */
-export function satelliteStyle(exaggeration = 1.3, warm = false): StyleSpecification {
+/** Color grades for the imagery looks: raster adjustments, a draped wash, and a matching sky. */
+type Grade = "none" | "warm" | "noir" | "blue";
+
+const GRADES: Record<Grade, { raster: Record<string, number>; wash?: [string, number]; sky: StyleSpecification["sky"] }> = {
+  none: {
+    raster: { "raster-saturation": -0.1, "raster-contrast": 0.05 },
+    sky: {
+      "sky-color": "#7fb1e6",
+      "sky-horizon-blend": 0.6,
+      "horizon-color": "#dfe9f2",
+      "horizon-fog-blend": 0.6,
+      "fog-color": "#c9d6e2",
+      "fog-ground-blend": 0.85,
+    },
+  },
+  // Golden Hour: warmer imagery, an amber wash, amber fog.
+  warm: {
+    raster: { "raster-saturation": 0.12, "raster-contrast": 0.12, "raster-brightness-max": 0.94, "raster-hue-rotate": -4 },
+    wash: ["#ff8a2a", 0.13],
+    sky: {
+      "sky-color": "#6f8fb8",
+      "horizon-color": "#f6c38b",
+      "fog-color": "#e8b27a",
+      "sky-horizon-blend": 0.7,
+      "horizon-fog-blend": 0.55,
+      "fog-ground-blend": 0.92,
+    },
+  },
+  // Noir: black-and-white imagery with punchy contrast, so a colored route is the only color on screen.
+  noir: {
+    raster: { "raster-saturation": -1, "raster-contrast": 0.28, "raster-brightness-max": 0.86 },
+    sky: {
+      "sky-color": "#2b2d30",
+      "horizon-color": "#8a8d91",
+      "fog-color": "#55585c",
+      "sky-horizon-blend": 0.6,
+      "horizon-fog-blend": 0.5,
+      "fog-ground-blend": 0.9,
+    },
+  },
+  // Blue Hour: the minutes after sunset, cool and dim, with a pink horizon.
+  blue: {
+    raster: { "raster-saturation": -0.35, "raster-contrast": 0.1, "raster-brightness-max": 0.72, "raster-hue-rotate": 8 },
+    wash: ["#2f4cff", 0.16],
+    sky: {
+      "sky-color": "#1b2350",
+      "horizon-color": "#d98aa8",
+      "fog-color": "#3a3f7a",
+      "sky-horizon-blend": 0.75,
+      "horizon-fog-blend": 0.5,
+      "fog-ground-blend": 0.9,
+    },
+  },
+};
+
+/** Satellite imagery + 3D terrain + sky, with upright vector labels like Strava's flyover, in one of the grades above. */
+export function satelliteStyle(exaggeration = 1.3, grade: Grade = "none"): StyleSpecification {
+  const g = GRADES[grade];
   const layers: LayerSpecification[] = [
     { id: "background", type: "background", paint: { "background-color": "#0d0d0d" } },
-    {
-      id: "satellite",
-      type: "raster",
-      source: "satellite",
-      paint: warm
-        ? { "raster-saturation": 0.12, "raster-contrast": 0.12, "raster-brightness-max": 0.94, "raster-hue-rotate": -4 }
-        : { "raster-saturation": -0.1, "raster-contrast": 0.05 },
-    },
+    { id: "satellite", type: "raster", source: "satellite", paint: g.raster },
   ];
-  if (warm) {
+  if (g.wash) {
     // A world-sized wash draped on the terrain: the cheapest honest "color grade" for raster tiles.
-    layers.push({ id: "warm-grade", type: "fill", source: "grade", paint: { "fill-color": "#ff8a2a", "fill-opacity": 0.13 } });
+    layers.push({ id: "grade-wash", type: "fill", source: "grade", paint: { "fill-color": g.wash[0], "fill-opacity": g.wash[1] } });
   }
-  layers.push(...imageryLabels("rgba(0,0,0,0.75)", "rgba(255,255,255,0.85)"));
+  layers.push(...imageryLabels("rgba(0,0,0,0.75)", grade === "blue" ? "rgba(220,228,255,0.85)" : "rgba(255,255,255,0.85)"));
   return {
     version: 8,
     glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
@@ -207,25 +284,7 @@ export function satelliteStyle(exaggeration = 1.3, warm = false): StyleSpecifica
     },
     layers,
     terrain: { source: "dem", exaggeration },
-    sky: warm
-      ? {
-          "sky-color": "#6f8fb8",
-          "horizon-color": "#f6c38b",
-          "fog-color": "#e8b27a",
-          "sky-horizon-blend": 0.7,
-          "horizon-fog-blend": 0.55,
-          "fog-ground-blend": 0.92,
-          "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 10, 1, 12, 0],
-        }
-      : {
-          "sky-color": "#7fb1e6",
-          "sky-horizon-blend": 0.6,
-          "horizon-color": "#dfe9f2",
-          "horizon-fog-blend": 0.6,
-          "fog-color": "#c9d6e2",
-          "fog-ground-blend": 0.85,
-          "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 10, 1, 12, 0],
-        },
+    sky: { ...g.sky, "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 10, 1, 12, 0] },
   };
 }
 
@@ -378,10 +437,80 @@ async function editorialStyle(exaggeration: number): Promise<StyleSpecification>
   return style;
 }
 
+/**
+ * "Blueprint": the dark vector map redrawn as a drafting sheet: navy ground, every road and
+ * building in thin pale-blue line work, contour lines from the terrain, and labels in light blue.
+ */
+async function blueprintStyle(exaggeration: number): Promise<StyleSpecification> {
+  const style = await fetchStyle(DARK_STYLE_URL);
+  declutter(style, /^(water_name|highway_name_motorway|place_(suburb|village|town|city|city_large))$/, "rgba(190,215,255,0.8)", "rgba(10,28,54,0.9)");
+  const INK = "#8fb8f0";
+  for (const l of style.layers) {
+    if (l.type === "background") l.paint = { "background-color": "#0c2340" };
+    else if (l.type === "fill") {
+      const water = /water/.test(l.id);
+      l.paint = water
+        ? { "fill-color": "#081a33", "fill-opacity": 1 }
+        : { "fill-color": "#0f2a4d", "fill-opacity": 0.55, "fill-outline-color": "rgba(143,184,240,0.35)" };
+    } else if (l.type === "line") {
+      const major = /motorway|trunk|primary|major/.test(l.id);
+      l.paint = { ...l.paint, "line-color": INK, "line-opacity": major ? 0.42 : 0.18 };
+    } else if (l.type === "fill-extrusion") {
+      l.paint = { ...l.paint, "fill-extrusion-color": "#14345e", "fill-extrusion-opacity": 0.6 };
+    }
+  }
+  style.sources.dem = demSource();
+  style.sources.contours = { type: "vector", tiles: [await contourSource()], maxzoom: 15 };
+  insertBefore(
+    style,
+    {
+      id: "hillshade",
+      type: "hillshade",
+      source: "dem",
+      paint: {
+        "hillshade-exaggeration": 0.35,
+        "hillshade-shadow-color": "#04101f",
+        "hillshade-highlight-color": "#1f4f8a",
+        "hillshade-accent-color": "#0c2340",
+        "hillshade-illumination-direction": 315,
+      },
+    },
+    /^(waterway|building|highway_path)$/,
+  );
+  insertBefore(
+    style,
+    {
+      id: "contours",
+      type: "line",
+      source: "contours",
+      "source-layer": "contours",
+      paint: {
+        "line-color": "#5fa8ff",
+        "line-opacity": ["match", ["get", "level"], 1, 0.5, 0.22] as never,
+        "line-width": ["match", ["get", "level"], 1, 0.9, 0.5] as never,
+      },
+    },
+    /^(waterway|building|highway_path)$/,
+  );
+  style.terrain = { source: "dem", exaggeration };
+  style.sky = {
+    "sky-color": "#08172c",
+    "horizon-color": "#163a66",
+    "fog-color": "#0c2340",
+    "sky-horizon-blend": 0.5,
+    "horizon-fog-blend": 0.5,
+    "fog-ground-blend": 0.95,
+    "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 10, 1, 12, 0],
+  };
+  return style;
+}
+
 export function flyoverStyle(id: LookId, exaggeration: number): Promise<StyleSpecification> {
   if (id === "night") return nightStyle(exaggeration);
   if (id === "editorial") return editorialStyle(exaggeration);
-  return Promise.resolve(satelliteStyle(exaggeration, id === "golden"));
+  if (id === "blueprint") return blueprintStyle(exaggeration);
+  const grade: Grade = id === "golden" ? "warm" : id === "noir" ? "noir" : id === "bluehour" ? "blue" : "none";
+  return Promise.resolve(satelliteStyle(exaggeration, grade));
 }
 
 void loadMapConfig();

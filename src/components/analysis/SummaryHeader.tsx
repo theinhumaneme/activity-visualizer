@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { Analysis } from "../../lib/analysis/types";
 import { formatDateTime, formatDistance, formatDuration, formatElevation, formatPace, formatUtcOffset, motionLabel, usesPace } from "../../lib/format/format";
 import { formatSplitMotion, splitUnit } from "./units";
@@ -88,8 +88,10 @@ export function SummaryHeader({ a, showName = true, variant = "hero" }: { a: Ana
         </div>
       )}
       <div className="grid grid-cols-2 gap-x-6 gap-y-5 min-[480px]:grid-cols-3">
-        {primary.map((m) => (
-          <Metric key={m.label} {...m} size="lg" />
+        {primary.map((m, k) => (
+          <div key={m.label} className="enter min-w-0" style={{ "--i": k + 1 } as CSSProperties}>
+            <Metric {...m} size="lg" />
+          </div>
         ))}
       </div>
       {secondary.length > 0 && (

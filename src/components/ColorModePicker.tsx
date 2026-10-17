@@ -4,9 +4,15 @@ import { useTheme } from "../state/theme";
 import { useStore } from "../state/store";
 import { Check, ControlRow, Segmented } from "./ui";
 
+/** Whether a solid swatch is light enough to need a dark check mark. */
+function isLight(hex: string) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55;
+}
+
 /**
  * Route coloring: a solid color of your choice, or by pace (slow → fast gets brighter), HR zone
- * (five labeled colors), grade (descent ↔ climb) or elevation. `theme` picks the ramp variant for
+ * (five labeled colors), heart rate, grade (descent ↔ climb), elevation, cadence or progress. `theme` picks the ramp variant for
  * the map it's shown on; satellite and Night Run views pass "dark".
  */
 export function ColorModePicker({ theme, bare }: { theme?: MapTheme; /** Without its own card (inside another panel). */ bare?: boolean }) {
@@ -28,6 +34,12 @@ export function ColorModePicker({ theme, bare }: { theme?: MapTheme; /** Without
   if (active === "zone") legend = { ramp: RAMPS.zone[t], low: "", high: "", discrete: ["Z1", "Z2", "Z3", "Z4", "Z5"] };
   if (active === "grade") legend = { ramp: RAMPS.grade[t], low: `−${GRADE_SPAN * 100}% descent`, high: `climb +${GRADE_SPAN * 100}%` };
   if (active === "elevation" && domain) legend = { ramp: RAMPS.elevation[t], low: formatElevation(domain[0], u), high: formatElevation(domain[1], u) };
+  if (active === "hr" && domain) legend = { ramp: RAMPS.hr[t], low: `${Math.round(domain[0])} bpm`, high: `${Math.round(domain[1])} bpm` };
+  if (active === "cadence" && domain) {
+    const unit = kind === "ride" ? "rpm" : "spm";
+    legend = { ramp: RAMPS.cadence[t], low: `${Math.round(domain[0])} ${unit}`, high: `${Math.round(domain[1])} ${unit}` };
+  }
+  if (active === "progress") legend = { ramp: RAMPS.progress[t], low: "Start", high: "Finish" };
 
   const modeLabel = (m: (typeof COLOR_MODES)[number]) => (m.mode === "pace" && kind === "ride" ? "Speed" : m.label);
 
@@ -69,7 +81,7 @@ export function ColorModePicker({ theme, bare }: { theme?: MapTheme; /** Without
                     }`}
                     style={{ background: c.hex }}
                   >
-                    {on && <Check className={`h-3 w-3 ${c.id === "white" || c.id === "yellow" || c.id === "lime" ? "text-[#17202b]" : "text-white"}`} />}
+                    {on && <Check className={`h-3 w-3 ${isLight(c.hex) ? "text-[#17202b]" : "text-white"}`} />}
                   </span>
                 </button>
               );

@@ -97,6 +97,33 @@ export function haloText(ctx: CanvasRenderingContext2D, text: string, x: number,
   ctx.fillText(text, x, y);
 }
 
+/** A rounded label chip on the canvas (reference-line values), in canvas pixels. */
+function chip(ctx: CanvasRenderingContext2D, text: string, right: number, midY: number, fill: string, edge: string, ink: string, dpr: number) {
+  const padX = 6 * dpr;
+  const h = 18 * dpr;
+  const w = ctx.measureText(text).width + padX * 2;
+  const x = right - w;
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.roundRect(x + 0.5 * dpr, midY - h / 2 + 0.5 * dpr, w - dpr, h - dpr, h / 2);
+  ctx.fill();
+  ctx.strokeStyle = edge;
+  ctx.lineWidth = dpr;
+  ctx.stroke();
+  ctx.fillStyle = ink;
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, x + padX, midY + 0.5 * dpr);
+}
+
+/** A soft vertical wash under a line, fading out toward the axis it fills to. */
+function fade(u: uPlot, color: string, alpha: number, invert?: boolean) {
+  const { top, height } = u.bbox;
+  const g = u.ctx.createLinearGradient(0, invert ? top + height : top, 0, invert ? top : top + height);
+  g.addColorStop(0, withAlpha(color, alpha));
+  g.addColorStop(1, withAlpha(color, 0));
+  return g;
+}
+
 /** Line/area chart over distance or time, with a crosshair shared with the map and other charts. */
 /** Shared axis geometry so every chart's plot area lines up. */
 const Y_AXIS_WIDTH = 56;
@@ -138,6 +165,9 @@ export function Chart({
   const plot = useRef<uPlot | null>(null);
   // Read by the draw hook so a highlight change only repaints, never rebuilds the plot.
   const highlightRef = useRef(highlight);
+  const reveal = useRef<HTMLDivElement>(null);
+  const swatch = color.startsWith("--") ? `var(${color})` : color;
+
 
   const autoRange = useMemo((): [number, number] | null => {
     const finite = Array.from(values)
@@ -155,6 +185,23 @@ export function Chart({
     return [lo - pad, hi + pad];
   }, [values, clip, bands]);
   const range = rangeProp !== undefined ? rangeProp : autoRange;
+  const hasPlot = range !== null;
+
+  // One-shot reveal when the plot first comes into view: a class flip, no re-render.
+  useEffect(() => {
+    const cover = reveal.current;
+    if (!cover) return;
+    const io = new IntersectionObserver(
+      ([e]) => {
+        if (!e.isIntersecting) return;
+        cover.classList.add("is-shown");
+        io.disconnect();
+      },
+      { threshold: 0.3 },
+    );
+    io.observe(cover);
+    return () => io.disconnect();
+  }, [hasPlot]);
 
   useEffect(() => {
     if (!el.current || !range) return;
@@ -178,7 +225,7 @@ export function Chart({
       cursor: {
         y: false,
         drag: { x: false, y: false },
-        points: { size: 9, width: 2, fill: (_u, i) => (i === 1 ? (hideLine ? INK : stroke) : resolve(lines![i - 2].color)), stroke: SURFACE },
+        points: { size: 10, width: 2.5, fill: (_u, i) => (i === 1 ? (hideLine ? INK : stroke) : resolve(lines![i - 2].color)), stroke: SURFACE },
       },
       scales: {
         x: { time: false },
@@ -201,7 +248,7 @@ export function Chart({
           gap: 8,
           space: 30,
           incrs: yIncrs,
-          grid: { stroke: GRID, width: 1 },
+          grid: { stroke: GRID, width: 1, dash: [3, 4] },
           ticks: { show: false },
           values: (_u, vals) => vals.map((v) => (formatTick ?? formatValue)(v)),
         },
@@ -210,8 +257,10 @@ export function Chart({
         {},
         {
           stroke: hideLine ? "rgba(0,0,0,0)" : stroke,
-          width: hideLine ? 0 : 2,
-          fill: area && !hideLine ? withAlpha(stroke, 0.22) : undefined,
+          width: hideLine ? 0 : 2.25,
+          // Every line gets a soft wash beneath it, area charts a fuller one; inverted pace fills downward too.
+          fill: hideLine ? undefined : (u: uPlot) => fade(u, stroke, area ? 0.34 : theme === "dark" ? 0.2 : 0.14, invert),
+          fillTo: invert ? () => range[1] : undefined,
           points: { show: false },
           spanGaps: false,
         },
@@ -271,18 +320,18 @@ export function Chart({
             over?.(u, ctx);
             if (refLines?.length) {
               ctx.font = `600 ${11.5 * dpr}px ${CHART_FONT}`;
-              ctx.textBaseline = "bottom";
               for (const r of refLines) {
                 const yy = Math.round(u.valToPos(r.value, "y", true)) + 0.5;
-                ctx.strokeStyle = INK2;
+                ctx.strokeStyle = withAlpha(INK2, 0.7);
                 ctx.lineWidth = dpr;
-                ctx.setLineDash([4 * dpr, 4 * dpr]);
+                ctx.setLineDash([2 * dpr, 4 * dpr]);
                 ctx.beginPath();
                 ctx.moveTo(left, yy);
                 ctx.lineTo(left + width, yy);
                 ctx.stroke();
                 ctx.setLineDash([]);
-                haloText(ctx, r.label, left + 6 * dpr, yy - 3 * dpr, INK, SURFACE);
+                // The value sits in a chip at the right end of its line, clear of the y-axis labels.
+                chip(ctx, r.label, left + width - 4 * dpr, yy, SURFACE, cssVar("--line"), INK, dpr);
               }
             }
             ctx.restore();
@@ -332,7 +381,12 @@ export function Chart({
     <Card variant="chart">
       <div className="mb-2 flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-1 sm:px-0">
         <div className="min-w-0">
-          <h3 className="text-base font-semibold text-ink">
+          <h3 className="flex items-baseline text-base font-semibold text-ink">
+            <span
+              aria-hidden
+              className="mr-2 h-2.5 w-2.5 shrink-0 self-center rounded-full"
+              style={{ background: swatch, boxShadow: `0 0 0 3px color-mix(in srgb, ${swatch} 20%, transparent)` }}
+            />
             {title}
             {unit && <span className="ml-1.5 text-sm font-normal text-muted">{unit}</span>}
           </h3>
@@ -340,37 +394,48 @@ export function Chart({
         </div>
         {/* Fixed slot for the value under the cursor, so the layout doesn't jump while you scrub. */}
         <div
-          className="flex min-h-[2.75rem] min-w-[8.5rem] flex-col items-end justify-center rounded-control bg-surface-2 px-3 py-1 text-right"
+          className={`flex min-h-[2.75rem] min-w-[8.5rem] flex-col items-end justify-center rounded-control border px-3 py-1 text-right ${
+            current !== null ? "border-grid bg-surface-2" : "border-dashed border-grid"
+          }`}
           aria-live="off"
         >
           {current !== null ? (
             <>
-              <span className="text-[15px] font-semibold leading-tight text-ink tabular">{current}</span>
+              <span className="text-[16px] font-semibold leading-tight tracking-[-0.01em] text-ink tabular">{current}</span>
               <span className="text-[12px] leading-tight text-muted tabular">at {at}</span>
             </>
           ) : (
-            <span className="text-label text-muted">Hover or tap to read</span>
+            <span className="flex items-center gap-1.5 text-label text-muted">
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden>
+                <path d="M8 2v12M2.5 8H5m6 0h2.5" />
+              </svg>
+              Hover or tap to read
+            </span>
           )}
         </div>
       </div>
       {range ? (
-        <div
-          ref={el}
-          tabIndex={0}
-          className="w-full touch-pan-y rounded-md"
-          role="img"
-          aria-label={`${ariaLabel ?? (typeof title === "string" ? `${title} chart` : "Chart")}. Use the left and right arrow keys to read values.`}
-          onKeyDown={(e) => {
-            if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && e.key !== "Home" && e.key !== "End") return;
-            e.preventDefault();
-            const n = x.length;
-            const step = Math.max(1, Math.round(n / (e.shiftKey ? 20 : 100)));
-            const cur = useStore.getState().hoverIndex ?? (e.key === "ArrowLeft" ? n : -1);
-            const next = e.key === "Home" ? 0 : e.key === "End" ? n - 1 : cur + (e.key === "ArrowLeft" ? -step : step);
-            useStore.getState().setHover(Math.min(n - 1, Math.max(0, next)));
-          }}
-          onBlur={() => useStore.getState().setHover(null)}
-        />
+        <div className="relative">
+          <div
+            ref={el}
+            tabIndex={0}
+            className="w-full touch-pan-y rounded-md"
+            role="img"
+            aria-label={`${ariaLabel ?? (typeof title === "string" ? `${title} chart` : "Chart")}. Use the left and right arrow keys to read values.`}
+            onKeyDown={(e) => {
+              if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && e.key !== "Home" && e.key !== "End") return;
+              e.preventDefault();
+              const n = x.length;
+              const step = Math.max(1, Math.round(n / (e.shiftKey ? 20 : 100)));
+              const cur = useStore.getState().hoverIndex ?? (e.key === "ArrowLeft" ? n : -1);
+              const next = e.key === "Home" ? 0 : e.key === "End" ? n - 1 : cur + (e.key === "ArrowLeft" ? -step : step);
+              useStore.getState().setHover(Math.min(n - 1, Math.max(0, next)));
+            }}
+            onBlur={() => useStore.getState().setHover(null)}
+          />
+          {/* Wipes away left to right the first time the chart scrolls into view, so the line reads as drawn. */}
+          <div ref={reveal} aria-hidden className="chart-reveal pointer-events-none absolute inset-y-0 right-0 bg-surface" style={{ left: Y_AXIS_WIDTH }} />
+        </div>
       ) : (
         <p className="px-1 text-sm text-muted">No data.</p>
       )}

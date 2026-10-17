@@ -1,3 +1,4 @@
+import { flushSync } from "react-dom";
 import { create } from "zustand";
 
 export type ThemePref = "system" | "light" | "dark";
@@ -30,7 +31,9 @@ interface ThemeState {
   setPref(pref: ThemePref): void;
 }
 
-export const useTheme = create<ThemeState>((set) => {
+type ViewTransitionDoc = Document & { startViewTransition?: (update: () => void) => unknown };
+
+export const useTheme = create<ThemeState>((set, get) => {
   const pref = readPref();
   media?.addEventListener("change", () => set((s) => ({ theme: resolve(s.pref) })));
   return {
@@ -42,8 +45,16 @@ export const useTheme = create<ThemeState>((set) => {
       } catch {
         // Not critical.
       }
-      apply(pref);
-      set({ pref, theme: resolve(pref) });
+      const commit = () => {
+        apply(pref);
+        set({ pref, theme: resolve(pref) });
+      };
+      // Cross-fade the switch where the browser can, rendering the new theme inside the transition
+      // so maps and charts that read theme colors swap in the same frame.
+      const doc = document as ViewTransitionDoc;
+      const fade = resolve(pref) !== get().theme && !!doc.startViewTransition && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (fade) doc.startViewTransition!(() => flushSync(commit));
+      else commit();
     },
   };
 });

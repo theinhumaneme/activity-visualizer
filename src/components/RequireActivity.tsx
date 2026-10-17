@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate, Outlet } from "react-router";
 import { useStore } from "../state/store";
+import { PageSkeleton } from "./ui";
 
 /** Routes past Upload need an activity; after a refresh, restore it from this tab's session first. */
 export function RequireActivity() {
@@ -14,6 +15,6 @@ export function RequireActivity() {
   }, [hasActivity, restoreSession]);
 
   if (hasActivity) return <Outlet />;
-  if (restoring) return <p className="p-8 text-center text-muted">Loading your activity…</p>;
+  if (restoring) return <PageSkeleton label="Loading your activity…" />;
   return <Navigate to="/" replace />;
 }

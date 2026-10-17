@@ -3,16 +3,19 @@ import type { Map as MlMap } from "maplibre-gl";
 import type { Analysis } from "../analysis/types";
 import { type LngLat, haversine } from "../geo/geo";
 
-export type ColorMode = "solid" | "pace" | "zone" | "grade" | "elevation";
+export type ColorMode = "solid" | "pace" | "zone" | "hr" | "grade" | "elevation" | "cadence" | "progress";
 export type MapTheme = "light" | "dark";
 
-/** Keyboard order (1–5) and labels. */
+/** Keyboard order (1–8) and labels. */
 export const COLOR_MODES: { mode: ColorMode; label: string }[] = [
   { mode: "solid", label: "Solid" },
   { mode: "pace", label: "Pace" },
   { mode: "zone", label: "HR zones" },
+  { mode: "hr", label: "Heart rate" },
   { mode: "grade", label: "Grade" },
   { mode: "elevation", label: "Elevation" },
+  { mode: "cadence", label: "Cadence" },
+  { mode: "progress", label: "Progress" },
 ];
 
 /** Solid route colors the user can pick; chosen to stand out on satellite imagery and both basemaps. */
@@ -23,6 +26,10 @@ export const ROUTE_COLORS = [
   { id: "magenta", label: "Magenta", hex: "#ff3d9a" },
   { id: "yellow", label: "Yellow", hex: "#ffe14d" },
   { id: "white", label: "White", hex: "#ffffff" },
+  { id: "red", label: "Red", hex: "#ff3b3b" },
+  { id: "violet", label: "Violet", hex: "#a06bff" },
+  { id: "cyan", label: "Cyan", hex: "#2de2e6" },
+  { id: "mint", label: "Mint", hex: "#5af2a8" },
 ] as const;
 export const ACCENT = ROUTE_COLORS[0].hex;
 export const START_COLOR = "#57c785";
@@ -52,6 +59,21 @@ export const RAMPS: Record<Exclude<ColorMode, "solid">, Record<MapTheme, string[
     dark: ["#1f5f73", "#2f9b8f", "#7fd3a6", "#e6f5c9"],
     light: ["#a8dcc8", "#4fae96", "#1f7a6e", "#0e4a44"],
   },
+  // Continuous heart rate: cool and calm at the low end, hot at the top.
+  hr: {
+    dark: ["#4a5a7a", "#7a5fc7", "#e0457b", "#ff7a4d", "#ffd27a"],
+    light: ["#7d8ca3", "#5b47c4", "#b8327a", "#d8462f", "#a33a0a"],
+  },
+  // Cadence: deep teal (slow turnover) to pale (quick).
+  cadence: {
+    dark: ["#1f4e5f", "#2fa3b5", "#8be0d0", "#f2f7c9"],
+    light: ["#9fd3dc", "#3d9db0", "#1f6f80", "#0f3f4a"],
+  },
+  // Progress, start → finish: a cool-to-warm sweep, so where you were when reads at a glance.
+  progress: {
+    dark: ["#3db8ff", "#a06bff", "#ff3d9a", "#ff8a3d"],
+    light: ["#1e88c9", "#6a55d8", "#c2327a", "#e2480f"],
+  },
 };
 
 /** Grade range mapped onto the diverging ramp (±12% saturates). */
@@ -59,6 +81,7 @@ export const GRADE_SPAN = 0.12;
 
 const hex = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 export function rampColor(ramp: string[], x: number): string {
+  if (!Number.isFinite(x)) return ramp[0];
   const v = Math.min(1, Math.max(0, x)) * (ramp.length - 1);
   const i = Math.min(ramp.length - 2, Math.floor(v));
   const f = v - i;
@@ -89,6 +112,15 @@ export function colorDomain(a: Analysis, mode: ColorMode): [number, number] | nu
     return [lo, Math.max(hi, lo + 1)];
   }
   if (mode === "grade" && a.grade) return [-GRADE_SPAN, GRADE_SPAN];
+  if (mode === "hr") {
+    const v = Array.from(a.hr).filter((h, i) => Number.isFinite(h) && a.moving[i]);
+    return v.length ? [percentile(v, 0.05), Math.max(percentile(v, 0.95), percentile(v, 0.05) + 1)] : null;
+  }
+  if (mode === "cadence" && a.cadence) {
+    const v = Array.from(a.cadence).filter((c, i) => c > 0 && a.moving[i]);
+    return v.length ? [percentile(v, 0.05), Math.max(percentile(v, 0.95), percentile(v, 0.05) + 1)] : null;
+  }
+  if (mode === "progress") return [0, Math.max(1, a.dist[a.n - 1])];
   return null;
 }
 
@@ -97,6 +129,8 @@ export function modeAvailable(a: Analysis, mode: ColorMode): boolean {
   if (mode === "zone") return a.zones.length > 0;
   if (mode === "grade" || mode === "elevation") return !!a.elev;
   if (mode === "pace") return !a.activity.routeOnly;
+  if (mode === "hr") return !a.activity.routeOnly && a.hr.some(Number.isFinite);
+  if (mode === "cadence") return !a.activity.routeOnly && !!a.cadence;
   return true;
 }
 
@@ -122,7 +156,20 @@ export function sampleColors(a: Analysis, { mode, color, theme }: RouteColoring)
     return out;
   }
   const domain = colorDomain(a, mode);
-  const series = mode === "pace" ? a.speed : mode === "grade" ? a.grade : mode === "elevation" ? a.elev : null;
+  const series =
+    mode === "pace"
+      ? a.speed
+      : mode === "grade"
+        ? a.grade
+        : mode === "elevation"
+          ? a.elev
+          : mode === "hr"
+            ? a.hr
+            : mode === "cadence"
+              ? a.cadence
+              : mode === "progress"
+                ? a.dist
+                : null;
   if (domain && series) {
     const [lo, hi] = domain;
     const ramp = RAMPS[mode as Exclude<ColorMode, "solid" | "zone">][theme];

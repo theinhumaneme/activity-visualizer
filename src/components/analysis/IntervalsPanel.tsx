@@ -75,7 +75,7 @@ function RepCard({ a, iv, rep, fastest, next }: { a: Analysis; iv: Intervals; re
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-label font-medium text-muted">{label}</span>
-        {fastest && <Tag tone="accent">fastest</Tag>}
+        {fastest && <Tag tone="accent">Fastest</Tag>}
       </div>
       <div className="mt-1 flex items-baseline justify-between gap-2">
         <span className="tabular text-xl font-semibold">{formatSplitMotion(rep.pace, a)}</span>
