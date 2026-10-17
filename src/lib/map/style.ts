@@ -123,8 +123,6 @@ export const LOOKS: Record<LookId, Look> = {
     label: "Blueprint",
     hud: "dark",
     ramp: "dark",
-    solid: "#ffffff",
-    glow: "#4fc3ff",
     casing: "#0a1c36",
     titleFont: "display",
     attribution: () => `${strip(OFM_ATTRIBUTION)} · ${strip(OSM_ATTRIBUTION)} · ${TERRAIN_ATTRIBUTION}`,
@@ -453,8 +451,20 @@ async function blueprintStyle(exaggeration: number): Promise<StyleSpecification>
         ? { "fill-color": "#081a33", "fill-opacity": 1 }
         : { "fill-color": "#0f2a4d", "fill-opacity": 0.55, "fill-outline-color": "rgba(143,184,240,0.35)" };
     } else if (l.type === "line") {
+      // Drafting line work: no casings or borders, and hairline widths instead of the basemap's
+      // road bands, so the route and the title read over it even in the wide opening shot.
+      if (/casing|boundary/.test(l.id)) {
+        l.layout = { ...l.layout, visibility: "none" };
+        continue;
+      }
       const major = /motorway|trunk|primary|major/.test(l.id);
-      l.paint = { ...l.paint, "line-color": INK, "line-opacity": major ? 0.42 : 0.18 };
+      const width = major ? [10, 0.5, 13, 0.9, 16, 1.6, 19, 3] : [10, 0.2, 14, 0.5, 17, 1, 19, 1.6];
+      l.paint = {
+        ...l.paint,
+        "line-color": /waterway/.test(l.id) ? "#3d6fae" : INK,
+        "line-opacity": major ? 0.55 : 0.3,
+        "line-width": ["interpolate", ["linear"], ["zoom"], ...width] as never,
+      };
     } else if (l.type === "fill-extrusion") {
       l.paint = { ...l.paint, "fill-extrusion-color": "#14345e", "fill-extrusion-opacity": 0.6 };
     }
@@ -486,7 +496,8 @@ async function blueprintStyle(exaggeration: number): Promise<StyleSpecification>
       "source-layer": "contours",
       paint: {
         "line-color": "#5fa8ff",
-        "line-opacity": ["match", ["get", "level"], 1, 0.5, 0.22] as never,
+        // Faded in only once the camera is close: from far away, small hilltop rings read as dots.
+        "line-opacity": ["interpolate", ["linear"], ["zoom"], 12.5, 0, 14, ["match", ["get", "level"], 1, 0.5, 0.22]] as never,
         "line-width": ["match", ["get", "level"], 1, 0.9, 0.5] as never,
       },
     },
