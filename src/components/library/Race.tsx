@@ -11,6 +11,8 @@ import type { LibraryRecord } from "../../lib/library/types";
 import { DARK_STYLE_URL } from "../../lib/map/style";
 import { distanceText, gapText, shortDate, sportPlural } from "./format";
 import { useReducedMotion } from "./hooks";
+import { mapPixelRatio, resolveDetail } from "../../lib/map/detail";
+import { useStore } from "../../state/store";
 
 const MAX_RUNNERS = 25;
 const SPEEDS = [10, 30, 60, 120];
@@ -68,6 +70,8 @@ export function Race({ groups, byId, radius, units }: { groups: RouteGroup[]; by
   useEffect(() => {
     const map = new MlMap({
       container: container.current!,
+      // Lite detail draws on-page maps at 1× (a quarter of the pixels on a 2× phone screen).
+      pixelRatio: mapPixelRatio(resolveDetail(useStore.getState().mapDetail)),
       style: DARK_STYLE_URL,
       attributionControl: { compact: true },
       dragRotate: false,
@@ -188,11 +192,18 @@ export function Race({ groups, byId, radius, units }: { groups: RouteGroup[]; by
     let raf = 0;
     let last = performance.now();
     let lastUi = 0;
+    let lastDraw = 0;
+    // Each draw re-sends the dots and trails to MapLibre's worker: 30 per second is smooth enough
+    // (15 at Lite), where every display frame (up to 120 Hz) kept the worker busy.
+    const drawEvery = resolveDetail(useStore.getState().mapDetail) === "lite" ? 66 : 33;
     if (tauRef.current >= total) tauRef.current = 0;
     const tick = (now: number) => {
       tauRef.current = Math.min(total, tauRef.current + ((now - last) / 1000) * speed);
       last = now;
-      draw(tauRef.current);
+      if (now - lastDraw >= drawEvery || tauRef.current >= total) {
+        lastDraw = now;
+        draw(tauRef.current);
+      }
       // The leaderboard re-renders ~8×/s; the map every frame.
       if (now - lastUi > 120 || tauRef.current >= total) {
         lastUi = now;

@@ -4,6 +4,8 @@
 // text update; paused offscreen, and a still frame under reduced motion.
 
 import { type CSSProperties, useEffect, useRef } from "react";
+import { resolveDetail } from "../lib/map/detail";
+import { useStore } from "../state/store";
 
 /** The sample route projected to a 400×300 box, starting at its start and running the same way. */
 export const ROUTE =
@@ -34,6 +36,7 @@ const CONTOURS = Array.from({ length: 9 }, (_, k) => {
 
 export function SamplePreview({ className = "", style }: { className?: string; style?: CSSProperties }) {
   const anim = useRef<SVGSVGElement>(null);
+  const root = useRef<HTMLElement>(null);
   const dist = useRef<HTMLSpanElement>(null);
   const pace = useRef<HTMLSpanElement>(null);
   const hr = useRef<HTMLSpanElement>(null);
@@ -43,13 +46,20 @@ export function SamplePreview({ className = "", style }: { className?: string; s
   useEffect(() => {
     const svg = anim.current;
     if (!svg) return;
-    if (reducedQuery?.matches) {
+    // A still frame under reduced motion, on Lite devices and when the browser asks to save data.
+    const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
+    if (reducedQuery?.matches || saveData || resolveDetail(useStore.getState().mapDetail) === "lite") {
       svg.pauseAnimations();
+      root.current?.classList.add("sp-paused");
       return;
     }
     let raf = 0;
     let last = 0;
+    // A visibility callback already queued when the page is left could restart the loop after
+    // cleanup; once stopped it stays stopped.
+    let stopped = false;
     const tick = (now: number) => {
+      if (stopped || !dist.current) return;
       raf = requestAnimationFrame(tick);
       if (now - last < 100) return;
       last = now;
@@ -62,7 +72,9 @@ export function SamplePreview({ className = "", style }: { className?: string; s
       bar.current!.style.transform = `scaleX(${p})`;
     };
     const io = new IntersectionObserver(([e]) => {
+      if (stopped) return;
       cancelAnimationFrame(raf);
+      root.current?.classList.toggle("sp-paused", !e.isIntersecting);
       if (e.isIntersecting) {
         svg.unpauseAnimations();
         raf = requestAnimationFrame(tick);
@@ -70,6 +82,7 @@ export function SamplePreview({ className = "", style }: { className?: string; s
     });
     io.observe(svg);
     return () => {
+      stopped = true;
       io.disconnect();
       cancelAnimationFrame(raf);
     };
@@ -77,6 +90,7 @@ export function SamplePreview({ className = "", style }: { className?: string; s
 
   return (
     <figure
+      ref={root}
       style={style}
       className={`relative isolate overflow-hidden rounded-[20px] bg-[#0b0f12] text-white shadow-[var(--shadow-pop)] ring-1 ring-grid ${className}`}
       aria-label="Preview: a 3D flyover of the sample run, with live distance, pace and heart rate"
@@ -148,9 +162,10 @@ export function SamplePreview({ className = "", style }: { className?: string; s
             </p>
             <p className="mt-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/70">Sample run · 3D flyover</p>
           </div>
-          <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold tracking-[0.04em] text-white/80 backdrop-blur">TIME ×60</span>
+          <span className="rounded-full bg-black/40 px-2.5 py-1 text-[11px] font-semibold tracking-[0.04em] text-white/80">TIME ×60</span>
         </div>
-        <div className="glass grid grid-cols-3 gap-2 rounded-2xl px-3.5 py-3 ring-1 ring-white/10 sm:px-4">
+        {/* Solid, not frosted: a blur here would be recomputed every frame over the moving trail. */}
+        <div className="grid grid-cols-3 gap-2 rounded-2xl bg-[#0b0f12]/80 px-3.5 py-3 ring-1 ring-white/10 sm:px-4">
           {(
             [
               ["Distance", "1.74", "km", dist],

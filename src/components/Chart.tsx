@@ -72,6 +72,19 @@ interface Props {
 }
 
 const resolve = (c: string) => (c.startsWith("--") ? cssVar(c) : c);
+// Pointer moves arrive 60-120 times a second; the shared hover (every chart's cursor, the map's
+// dot) updates at most once per frame.
+let hoverPending: number | null = null;
+let hoverFrame = 0;
+function hoverSoon(i: number | null) {
+  hoverPending = i;
+  if (hoverFrame) return;
+  hoverFrame = requestAnimationFrame(() => {
+    hoverFrame = 0;
+    useStore.getState().setHover(hoverPending);
+  });
+}
+
 export const CHART_FONT = '"Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 
 /** X values for the charts: distance in display units, or seconds. Shared so custom layers line up. */
@@ -270,7 +283,7 @@ export function Chart({
         setCursor: [
           (u) => {
             const i = u.cursor.idx;
-            useStore.getState().setHover(i === null || i === undefined ? null : i);
+            hoverSoon(i === null || i === undefined ? null : i);
           },
         ],
         drawClear: [

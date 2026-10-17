@@ -11,6 +11,7 @@ import type { LookId } from "../lib/map/style";
 import type { CameraMode } from "../lib/playback/timeline";
 import { DEFAULT_END, DEFAULT_LIVE, type EndStat, type LiveStat } from "../lib/hud/stats";
 import type { CameraDistance } from "../lib/playback/lengths";
+import type { MapDetail } from "../lib/map/detail";
 import type { Activity } from "../lib/parse/types";
 import { boundsOf } from "../lib/geo/geo";
 import { type TerrainGrid, gridPoints } from "../lib/geo/terrainGrid";
@@ -23,6 +24,7 @@ const ROUTE_COLOR_KEY = "rv:route-color";
 const PRIVACY_KEY = "rv:privacy-radius";
 const LOOK_KEY = "rv:look";
 const STATS_KEY = "rv:video-stats";
+const DETAIL_KEY = "rv:map-detail";
 const LOOK_IDS: LookId[] = ["night", "golden", "editorial", "satellite", "noir", "bluehour", "blueprint"];
 
 function storedLook(): LookId {
@@ -56,6 +58,16 @@ function storedStats(): { liveStats: LiveStat[]; endStats: EndStat[]; highlights
     // Storage unavailable or corrupt.
   }
   return { liveStats: [...DEFAULT_LIVE], endStats: [...DEFAULT_END], highlights: true };
+}
+
+function storedDetail(): MapDetail {
+  try {
+    const v = localStorage.getItem(DETAIL_KEY);
+    if (v === "auto" || v === "lite" || v === "standard" || v === "high") return v;
+  } catch {
+    // Storage unavailable.
+  }
+  return "auto";
 }
 
 function storedRouteColor(): string {
@@ -103,6 +115,9 @@ interface State {
   /** Chase camera distance (auto picks by sport). */
   cameraDistance: CameraDistance;
   setCameraDistance(d: CameraDistance): void;
+  /** Map sharpness vs GPU load (auto picks from the device). */
+  mapDetail: MapDetail;
+  setMapDetail(d: MapDetail): void;
 
   loadText(text: string, fileName: string): Promise<boolean>;
   loadFile(file: File): Promise<boolean>;
@@ -221,6 +236,15 @@ export const useStore = create<State>((set, get) => {
     ...storedStats(),
     cameraDistance: "auto",
     setCameraDistance: (d) => set({ cameraDistance: d }),
+    mapDetail: storedDetail(),
+    setMapDetail(d) {
+      try {
+        localStorage.setItem(DETAIL_KEY, d);
+      } catch {
+        // Not critical.
+      }
+      set({ mapDetail: d });
+    },
 
     async loadText(text, fileName) {
       set({ loading: true, error: null });

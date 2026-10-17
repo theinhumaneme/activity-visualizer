@@ -6,6 +6,13 @@ import { BrowserRouter, Route, Routes, useLocation } from "react-router";
 import "@fontsource-variable/inter/opsz.css";
 import "@fontsource-variable/fraunces/opsz.css";
 import "./index.css";
+import { resolveDetail } from "./lib/map/detail";
+import { useStore } from "./state/store";
+
+// Lets CSS drop costly effects (background blur) on Lite devices.
+const markDetail = () => document.documentElement.setAttribute("data-detail", resolveDetail(useStore.getState().mapDetail));
+markDetail();
+useStore.subscribe((s, prev) => s.mapDetail !== prev.mapDetail && markDetail());
 import { Layout } from "./components/Layout";
 import { RequireActivity } from "./components/RequireActivity";
 import { CheckPage } from "./routes/CheckPage";

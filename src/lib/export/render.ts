@@ -6,6 +6,7 @@ import { type TerrainGrid, sampler } from "../geo/terrainGrid";
 import { drawHud, loadHudFonts } from "../hud/hud";
 import type { EndStat, LiveStat } from "../hud/stats";
 import { type ColorMode } from "../map/route";
+import { DETAIL, type DetailLevel, applyTerrainQuality } from "../map/detail";
 import { LOOKS, type LookId, flyoverStyle } from "../map/style";
 import { planTiles, preloadTiles, releaseTiles, reloadFailedTiles, retryTiles, tileHealth } from "../map/tileFetch";
 import { FlyoverRenderer, addFlyoverLayers, settled } from "../playback/renderer";
@@ -31,6 +32,8 @@ export interface ExportOptions {
   highlights?: boolean;
   /** Multiplier on the chase camera distance. */
   distanceScale?: number;
+  /** Map detail level (sharper terrain textures and imagery at High). */
+  detail?: DetailLevel;
   endCard: boolean;
   fps: number;
   terrain: TerrainGrid | null;
@@ -111,7 +114,9 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
   document.body.appendChild(host);
   // Fonts are only needed for the first HUD draw: load them while the map loads.
   const fonts = loadHudFonts(look);
-  const style = await flyoverStyle(opts.look, opts.exaggeration);
+  const detail = opts.detail ?? "standard";
+  // Exports keep the full look even on Lite devices (Lite only lightens on-page maps).
+  const style = await flyoverStyle(opts.look, opts.exaggeration, detail === "lite" ? "standard" : detail);
   const map = new MlMap({
     container: host,
     style,
@@ -156,6 +161,8 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
   // shifts the whole view up and down as tiles change: visible as jitter.
   if (opts.terrain) map.setCenterClampedToGround(false);
   redrawTexturesAtOnce(map);
+  // Exports never go below MapLibre's default texture resolution (Lite only lightens on-page maps).
+  applyTerrainQuality(map, Math.max(2, DETAIL[detail].terrainQuality));
   addFlyoverLayers(map, look);
   const renderer = new FlyoverRenderer(map, a, { mode: opts.colorMode, color: opts.routeColor, theme: look.ramp }, look);
   // The map's size is fixed: project without reading layout from the DOM every frame.
@@ -340,6 +347,30 @@ function redrawTexturesAtOnce(map: MlMap) {
   };
 }
 
+/**
+ * A fresh file in the origin-private file system (on disk, not counted against page memory) to
+ * stream an export into, or null where that isn't available. Earlier exports' files are removed.
+ */
+async function openVideoFile(extension: string) {
+  try {
+    const root = await navigator.storage?.getDirectory?.();
+    if (!root) return null;
+    const dir = await root.getDirectoryHandle("exports", { create: true });
+    for await (const name of (dir as unknown as { keys(): AsyncIterable<string> }).keys()) await dir.removeEntry(name).catch(() => {});
+    const handle = await dir.getFileHandle(`video-${Date.now()}.${extension}`, { create: true });
+    if (typeof (handle as { createWritable?: unknown }).createWritable !== "function") return null;
+    const writable = await handle.createWritable();
+    return {
+      writable: writable as unknown as WritableStream<{ type: "write"; data: Uint8Array<ArrayBuffer>; position: number }>,
+      /** The finished file (read from disk on demand, not loaded into memory). */
+      file: () => handle.getFile(),
+      discard: () => dir.removeEntry(handle.name).catch(() => {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Resolves when the page is visible (immediately if it already is). */
 function whenVisible(signal: AbortSignal): Promise<void> {
   if (typeof document === "undefined" || !document.hidden) return Promise.resolve();
@@ -402,16 +433,25 @@ export async function renderVideo(
       hooks.onProgress({ stage: "frames", frame: i + 1, total, elapsedMs: now - started, rateLimited: tileHealth.rateLimited - limitedAtStart });
     };
 
-    const { BufferTarget, CanvasSource, Mp4OutputFormat, Output, WebMOutputFormat, getFirstEncodableVideoCodec } = await import("mediabunny");
+    const { BufferTarget, CanvasSource, Mp4OutputFormat, Output, StreamTarget, WebMOutputFormat, getFirstEncodableVideoCodec } = await import("mediabunny");
     const codec = typeof VideoEncoder !== "undefined" ? await getFirstEncodableVideoCodec(["avc", "vp9", "av1"], { width: st.W, height: st.H }) : null;
     if (codec) {
       const extension = codec === "avc" ? "mp4" : "webm";
+      // Stream the file to the browser's private on-device storage as it's encoded: a 5-minute
+      // 1080p video is ~250 MB, and holding it in memory (then copying it into a Blob) could take
+      // 2-3x that, enough to crash a low-memory phone. Falls back to memory where unsupported.
+      const disk = await openVideoFile(extension);
       const output = new Output({
-        format: extension === "mp4" ? new Mp4OutputFormat({ fastStart: "in-memory" }) : new WebMOutputFormat(),
-        target: new BufferTarget(),
+        format:
+          extension === "mp4"
+            ? // "reserve" keeps the index at the front (plays and uploads everywhere) while streaming;
+              // it needs the frame count up front, which we know.
+              new Mp4OutputFormat({ fastStart: disk ? "reserve" : "in-memory" })
+            : new WebMOutputFormat(),
+        target: disk ? new StreamTarget(disk.writable, { chunked: true }) : new BufferTarget(),
       });
       const source = new CanvasSource(st.composite, { codec, bitrate: videoBitrate(codec, st.W, st.H, opts.fps), keyFrameInterval: 2 });
-      output.addVideoTrack(source, { frameRate: opts.fps });
+      output.addVideoTrack(source, { frameRate: opts.fps, maximumPacketCount: total + 16 });
       await output.start();
       try {
         for (let i = 0; i < total; i++) {
@@ -424,10 +464,12 @@ export async function renderVideo(
         await output.finalize();
       } catch (err) {
         await output.cancel();
+        await disk?.discard();
         throw err;
       }
+      const type = extension === "mp4" ? "video/mp4" : "video/webm";
       return {
-        blob: new Blob([output.target.buffer!], { type: extension === "mp4" ? "video/mp4" : "video/webm" }),
+        blob: disk ? new Blob([await disk.file()], { type }) : new Blob([(output.target as InstanceType<typeof BufferTarget>).buffer!], { type }),
         extension,
         width: st.W,
         height: st.H,

@@ -9,6 +9,8 @@ import { DARK_STYLE_URL, LIGHT_STYLE_URL } from "../../lib/map/style";
 import { useTheme } from "../../state/theme";
 import { distanceText } from "./format";
 import { useReducedMotion } from "./hooks";
+import { mapPixelRatio, resolveDetail } from "../../lib/map/detail";
+import { useStore } from "../../state/store";
 
 /** Seconds the chronological build-up takes, whatever the date range. */
 const BUILD_SECONDS = 12;
@@ -62,6 +64,8 @@ export function Heatmap({ records, radius, units }: { records: LibraryRecord[]; 
   useEffect(() => {
     const map = new MlMap({
       container: container.current!,
+      // Lite detail draws on-page maps at 1× (a quarter of the pixels on a 2× phone screen).
+      pixelRatio: mapPixelRatio(resolveDetail(useStore.getState().mapDetail)),
       style: theme === "dark" ? DARK_STYLE_URL : LIGHT_STYLE_URL,
       attributionControl: { compact: true },
       dragRotate: false,
@@ -146,7 +150,8 @@ export function Heatmap({ records, radius, units }: { records: LibraryRecord[]; 
     map.setFilter("lib-lines", f);
   }, [ready, cutoff]);
 
-  // Playback: the whole range in BUILD_SECONDS, filter updates throttled to ~12/s.
+  // Playback: the whole range in BUILD_SECONDS, filter updates throttled to ~12/s (~4/s at Lite:
+  // each one makes MapLibre re-filter every point in its worker).
   useEffect(() => {
     if (!playing || !ready) return;
     let raf = 0;
@@ -154,10 +159,11 @@ export function Heatmap({ records, radius, units }: { records: LibraryRecord[]; 
     let lastSet = 0;
     let cur = day >= d1 ? d0 : day;
     const perMs = (d1 - d0) / (BUILD_SECONDS * 1000);
+    const every = resolveDetail(useStore.getState().mapDetail) === "lite" ? 250 : 80;
     const tick = (now: number) => {
       cur = Math.min(d1, cur + (now - lastT) * perMs);
       lastT = now;
-      if (now - lastSet > 80 || cur >= d1) {
+      if (now - lastSet > every || cur >= d1) {
         lastSet = now;
         setDay(cur);
       }

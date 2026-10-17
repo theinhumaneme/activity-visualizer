@@ -7,6 +7,7 @@ import { DARK_STYLE_URL, LIGHT_STYLE_URL } from "../lib/map/style";
 import { useStore } from "../state/store";
 import { useTheme } from "../state/theme";
 import { Failure, Loading } from "./ui";
+import { mapPixelRatio, resolveDetail } from "../lib/map/detail";
 
 const EMPTY = { type: "FeatureCollection" as const, features: [] };
 
@@ -104,6 +105,8 @@ export function RouteMap({ className = "", showStops = false, legend = true }: {
     setFailed(false);
     const map = new MlMap({
       container: container.current!,
+      // Lite detail draws on-page maps at 1× (a quarter of the pixels on a 2× phone screen).
+      pixelRatio: mapPixelRatio(resolveDetail(useStore.getState().mapDetail)),
       style: theme === "dark" ? DARK_STYLE_URL : LIGHT_STYLE_URL,
       attributionControl: { compact: true },
       dragRotate: false,

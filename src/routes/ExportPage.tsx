@@ -6,6 +6,7 @@ import { MAX_END, MAX_LIVE, endOptions, liveOptions } from "../lib/hud/stats";
 import { drawExportPreview } from "../lib/export/preview";
 import { formatDuration } from "../lib/format/format";
 import { loadHudFonts } from "../lib/hud/hud";
+import { MAP_DETAILS, resolveDetail } from "../lib/map/detail";
 import { LOOKS, type LookId } from "../lib/map/style";
 import { CAMERA_DISTANCES, CHASE_LENGTHS, cameraDistanceScale, lengthLabel, suggestedLength } from "../lib/playback/lengths";
 import { CAMERA_OPTIONS, type CameraMode, autoExaggeration } from "../lib/playback/timeline";
@@ -49,10 +50,13 @@ export function ExportPage() {
   const setVideoStats = useStore((s) => s.setVideoStats);
   const highlights = useStore((s) => s.highlights);
   const cameraDistance = useStore((s) => s.cameraDistance);
+  const mapDetail = useStore((s) => s.mapDetail);
+  const setMapDetail = useStore((s) => s.setMapDetail);
   const setCameraDistance = useStore((s) => s.setCameraDistance);
   const [kind, setKind] = useState<"video" | "poster">("video");
   const [aspect, setAspect] = useState<Aspect>("9:16");
-  const [resolution, setResolution] = useState<720 | 1080>(1080);
+  // Lite devices (low memory) default to 720p: about half the encoding work and file size.
+  const [resolution, setResolution] = useState<720 | 1080>(() => (resolveDetail(useStore.getState().mapDetail) === "lite" ? 720 : 1080));
   const [fps, setFps] = useState<30 | 60>(30);
   const [length, setLength] = useState<number>(() => suggestedLength(a.activity.routeOnly ? 0 : a.summary.moving));
   const [mode, setMode] = useState<CameraMode>(storeMode === "free" ? "cinematic" : storeMode);
@@ -112,6 +116,7 @@ export function ExportPage() {
       exaggeration,
       reducedMotion: reduced,
       distanceScale: cameraDistanceScale(cameraDistance, a.activity.kind),
+      detail: resolveDetail(mapDetail),
       stats,
       liveStats,
       endStats,
@@ -204,6 +209,18 @@ export function ExportPage() {
               <div className="space-y-3">
                 <ControlRow label="Map style">
                   <Segmented size="sm" label="Map style" value={lookId} onChange={(v) => setLook(v as LookId)} options={Object.values(LOOKS).map((l) => ({ value: l.id, label: l.label }))} />
+                </ControlRow>
+                <ControlRow
+                  label="Map detail"
+                  hint={
+                    resolveDetail(mapDetail) === "high"
+                      ? "Sharper terrain and imagery; uses more graphics memory and takes a little longer."
+                      : mapDetail === "auto"
+                        ? `${MAP_DETAILS.find((d) => d.value === resolveDetail(mapDetail))!.label} on this device.`
+                        : undefined
+                  }
+                >
+                  <Segmented size="sm" label="Map detail" value={mapDetail} onChange={setMapDetail} options={MAP_DETAILS} />
                 </ControlRow>
                 <ColorModePicker theme={LOOKS[lookId].ramp} bare />
               </div>

@@ -4,6 +4,7 @@ import { type LayerSpecification, type StyleSpecification, addProtocol, setWorke
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 // maplibre-contour (~25 KB gzipped) is only for the Editorial and Blueprint looks: imported when one is built.
 import type mlcontourModule from "maplibre-contour";
+import { DETAIL, type DetailLevel, liteStyle } from "./detail";
 import type { MapTheme } from "./route";
 
 setWorkerUrl(workerUrl);
@@ -242,7 +243,7 @@ const GRADES: Record<Grade, { raster: Record<string, number>; wash?: [string, nu
 };
 
 /** Satellite imagery + 3D terrain + sky, with upright vector labels like Strava's flyover, in one of the grades above. */
-export function satelliteStyle(exaggeration = 1.3, grade: Grade = "none"): StyleSpecification {
+export function satelliteStyle(exaggeration = 1.3, grade: Grade = "none", satelliteTileSize: 128 | 256 = 256): StyleSpecification {
   const g = GRADES[grade];
   const layers: LayerSpecification[] = [
     { id: "background", type: "background", paint: { "background-color": "#0d0d0d" } },
@@ -257,7 +258,15 @@ export function satelliteStyle(exaggeration = 1.3, grade: Grade = "none"): Style
     version: 8,
     glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
     sources: {
-      satellite: { type: "raster", tiles: tiles("satellite"), tileSize: 256, maxzoom: 19, attribution: satelliteAttribution },
+      // MapTiler serves 512 px tiles (already sharp when declared 256); Esri serves 256 px ones,
+      // which High detail declares as 128 so a deeper, sharper zoom level is fetched.
+      satellite: {
+        type: "raster",
+        tiles: tiles("satellite"),
+        tileSize: satelliteAttribution.includes("MapTiler") ? 256 : satelliteTileSize,
+        maxzoom: 19,
+        attribution: satelliteAttribution,
+      },
       dem: demSource(),
       openmaptiles: { type: "vector", url: "https://tiles.openfreemap.org/planet" },
       grade: {
@@ -516,12 +525,17 @@ async function blueprintStyle(exaggeration: number): Promise<StyleSpecification>
   return style;
 }
 
-export function flyoverStyle(id: LookId, exaggeration: number): Promise<StyleSpecification> {
-  if (id === "night") return nightStyle(exaggeration);
-  if (id === "editorial") return editorialStyle(exaggeration);
-  if (id === "blueprint") return blueprintStyle(exaggeration);
+export async function flyoverStyle(id: LookId, exaggeration: number, detail: DetailLevel = "standard"): Promise<StyleSpecification> {
   const grade: Grade = id === "golden" ? "warm" : id === "noir" ? "noir" : id === "bluehour" ? "blue" : "none";
-  return Promise.resolve(satelliteStyle(exaggeration, grade));
+  const style =
+    id === "night"
+      ? await nightStyle(exaggeration)
+      : id === "editorial"
+        ? await editorialStyle(exaggeration)
+        : id === "blueprint"
+          ? await blueprintStyle(exaggeration)
+          : satelliteStyle(exaggeration, grade, DETAIL[detail].satelliteTileSize);
+  return detail === "lite" ? liteStyle(style) : style;
 }
 
 void loadMapConfig();

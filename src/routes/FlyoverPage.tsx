@@ -6,6 +6,7 @@ import { formatDuration } from "../lib/format/format";
 import { sampler } from "../lib/geo/terrainGrid";
 import { drawHud, loadHudFonts } from "../lib/hud/hud";
 import { COLOR_MODES, modeAvailable } from "../lib/map/route";
+import { DETAIL, MAP_DETAILS, applyTerrainQuality, resolveDetail } from "../lib/map/detail";
 import { LOOKS, type LookId, flyoverStyle } from "../lib/map/style";
 import { retryTiles } from "../lib/map/tileFetch";
 import { FlyoverRenderer, addFlyoverLayers } from "../lib/playback/renderer";
@@ -53,6 +54,9 @@ export function FlyoverPage() {
   const endStats = useStore((s) => s.endStats);
   const highlights = useStore((s) => s.highlights);
   const cameraDistance = useStore((s) => s.cameraDistance);
+  const mapDetail = useStore((s) => s.mapDetail);
+  const setMapDetail = useStore((s) => s.setMapDetail);
+  const detail = resolveDetail(mapDetail);
   const setCameraDistance = useStore((s) => s.setCameraDistance);
   const setVideoStats = useStore((s) => s.setVideoStats);
   const updateSettings = useStore((s) => s.updateSettings);
@@ -156,7 +160,7 @@ export function FlyoverPage() {
       const tl = timelineRef.current;
       if (!cancelled && tl && rendererRef.current) drawOverlay(tl.frame(tRef.current));
     });
-    flyoverStyle(lookId, exaggeration)
+    flyoverStyle(lookId, exaggeration, detail)
       .then((style) => {
         if (cancelled || !container.current) return;
         map = new MlMap({
@@ -166,7 +170,7 @@ export function FlyoverPage() {
           interactive: false,
           maxPitch: 85,
           // 3× phone screens would draw 2.25× the pixels of 2× for no visible gain on terrain.
-          pixelRatio: Math.min(2, window.devicePixelRatio || 1),
+          pixelRatio: Math.min(DETAIL[detail].pixelRatio, window.devicePixelRatio || 1),
           attributionControl: { compact: true },
           center: [a.samples[0].lon, a.samples[0].lat],
           zoom: 13,
@@ -174,6 +178,7 @@ export function FlyoverPage() {
         mapRef.current = map;
         map.on("load", () => {
           const st = useStore.getState();
+          applyTerrainQuality(map!, DETAIL[detail].terrainQuality);
           addFlyoverLayers(map!, look);
           rendererRef.current = new FlyoverRenderer(map!, a, { mode: st.colorMode, color: st.routeColor, theme: look.ramp }, look);
           setReady(true);
@@ -194,7 +199,7 @@ export function FlyoverPage() {
     };
     // `look` and `drawOverlay` derive from lookId and the activity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [a, lookId, exaggeration, attempt]);
+  }, [a, lookId, exaggeration, attempt, detail]);
 
   // (Re)build the timeline when framing inputs change, keeping the relative position.
   useEffect(() => {
@@ -407,6 +412,9 @@ export function FlyoverPage() {
           </ControlRow>
           <ControlRow label="Camera distance" hint={cameraDistance === "auto" ? (["run", "ride", "walk"].includes(a.activity.kind) ? "Close for this activity." : "Far for this activity.") : undefined}>
             <Segmented size="sm" label="Camera distance" value={cameraDistance} onChange={setCameraDistance} options={CAMERA_DISTANCES} />
+          </ControlRow>
+          <ControlRow label="Map detail" hint={mapDetail === "auto" ? `${MAP_DETAILS.find((d) => d.value === detail)!.label} on this device.` : undefined}>
+            <Segmented size="sm" label="Map detail" value={mapDetail} onChange={setMapDetail} options={MAP_DETAILS} />
           </ControlRow>
           <ControlRow label="Map style">
             <Segmented

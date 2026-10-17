@@ -690,3 +690,33 @@ html {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/*
+ * Background blur is costly on phones and low-end GPUs: every scroll or animation frame re-blurs
+ * what's behind (the sticky bars over charts, panels over maps). On touch screens and at Lite map
+ * detail, panels go solid instead; they're already 90%+ opaque, so they read the same.
+ */
+@media (pointer: coarse) {
+  .glass,
+  [class*="backdrop-blur"] {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .glass {
+    background: var(--nr-panel-solid, rgba(14, 16, 20, 0.9));
+  }
+}
+:root[data-detail="lite"] .glass,
+:root[data-detail="lite"] [class*="backdrop-blur"] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+:root[data-detail="lite"] .glass {
+  background: var(--nr-panel-solid, rgba(14, 16, 20, 0.9));
+}
+
+/* The upload preview pauses its CSS motion while scrolled out of view, like its SVG animation. */
+.sp-paused .sp-camera,
+.sp-paused .ping {
+  animation-play-state: paused;
+}
