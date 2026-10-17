@@ -337,7 +337,11 @@ export function ExportPage() {
                     <div className="h-2 rounded-full bg-accent transition-[width] duration-300" style={{ width: `${pct * 100}%` }} />
                   </div>
                   <p className="mt-2 text-center text-label text-muted tabular">
-                    {progress?.stage === "frames" ? `Frame ${progress.frame} of ${progress.total}${eta ? ` · about ${formatDuration(eta / 1000)} left` : ""}. ` : "Loading the map… "}
+                    {progress?.stage === "frames"
+                      ? `Frame ${progress.frame} of ${progress.total}${eta ? ` · about ${formatDuration(eta / 1000)} left` : ""}. `
+                      : progress && progress.total > 1
+                        ? `Preloading tile ${progress.frame} of ${progress.total} for the whole flight, so frames render without waiting. `
+                        : "Loading the map… "}
                     {progress && progress.rateLimited > 0 ? "The tile server is busy, so tiles are being retried; this frame may take longer. " : ""}
                     Keep this tab open; it pauses in the background.
                   </p>

@@ -3,9 +3,11 @@
 //
 // Shot list: establish (high drop over the region) → reveal (settle behind the start) → chase
 // (the bulk; dwells on moments) → finish (ease to a stop) → pull-back (rise and rotate to the
-// whole route) → end card. The camera never follows raw GPS: it rides a separate, heavily
-// smoothed rail, and every shot's pose goes through critically damped springs with rate limits.
-// Because the springs see every handoff, velocities always match: no stop-start, no whip pans.
+// whole route) → end card. The camera never follows raw GPS: it faces along a heavily smoothed
+// rail, and every shot's pose goes through critically damped springs with rate limits. Because
+// the springs see every handoff, velocities always match: no stop-start, no whip pans. The
+// look-at point is derived from the pose the springs actually reached, so however they lag, the
+// athlete stays at the same spot on screen, and the marker's pace is smoothed so it never lurches.
 // The whole camera path is baked once at 60 Hz, which also makes export frame-exact.
 
 import type { Moment } from "../analysis/moments";
@@ -72,6 +74,8 @@ export interface TimelineOptions {
   elevationAt?: ElevationAt | null;
   /** Vertical field of view, degrees (MapLibre's default). */
   fov?: number;
+  /** Where the athlete sits on screen, as a fraction of the height from the top (clear of the HUD). */
+  subjectY?: number;
 }
 
 export interface Timeline {
@@ -92,6 +96,15 @@ export interface Timeline {
 
 /** Stopped stretches get this fraction of their real duration on screen. */
 const STOP_WEIGHT = 0.03;
+/** On-screen pace is smoothed over about this much video time (no GPS speed flicker). */
+const PACE_SMOOTH_S = 0.8;
+/** How much of the real speed variation reaches the screen: 0 = constant pace, 1 = real. */
+const PACE_CONTRAST = 0.5;
+/** On-screen pace stays within this factor of the average, either way. */
+const PACE_RANGE = 2;
+/** Moments may take at most this share of the chase, and slow the marker at most this much. */
+const MAX_DWELL_SHARE = 0.3;
+const MAX_SLOWDOWN = 2.5;
 const RAIL_STEP = 5; // m
 /** Camera clearance above terrain at the camera, m; tapers to 0 at the look-at point. */
 const CLEARANCE = 110;
@@ -179,10 +192,12 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
     return (Number.isFinite(g) ? g : routeTop) * exag;
   };
 
-  // --- Camera rail: the route resampled every 5 m and smoothed over ~±60 m -------------------
+  // --- Camera rail: the route resampled every 5 m -------------------------------------------
+  // Two versions: lightly smoothed (±10 m) for where the athlete is, heavily smoothed (~±60 m)
+  // for which way the camera faces, so switchbacks don't swing it.
   const d0 = dist[from];
   const d1 = Math.max(d0 + 1, dist[to]);
-  const K = Math.max(2, Math.floor((d1 - d0) / RAIL_STEP) + 1);
+  const K = Math.max(2, Math.ceil((d1 - d0) / RAIL_STEP) + 1);
   const railD = new Float64Array(K);
   let rx: Float64Array = new Float64Array(K);
   let ry: Float64Array = new Float64Array(K);
@@ -191,6 +206,8 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
     const f = Math.min(to, Math.max(from, indexAtDist(dist, railD[k])));
     [rx[k], ry[k]] = toXY(atIndex(lon, f), atIndex(lat, f));
   }
+  const mx = movingAverage(rx, 2);
+  const my = movingAverage(ry, 2);
   for (let pass = 0; pass < 3; pass++) {
     rx = movingAverage(rx, 8);
     ry = movingAverage(ry, 8);
@@ -198,6 +215,11 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
   const railAt = (d: number): [number, number] => {
     const c = Math.min(d1, Math.max(d0, d));
     return [interpAt(railD, rx, c), interpAt(railD, ry, c)];
+  };
+  /** Where the athlete is (the route itself, minus GPS jitter). */
+  const markerXY = (d: number): [number, number] => {
+    const c = Math.min(d1, Math.max(d0, d));
+    return [interpAt(railD, mx, c), interpAt(railD, my, c)];
   };
   /** Heading of the rail from d toward a look-ahead point (prevents cutting corners on switchbacks). */
   const headingAt = (d: number, ahead: number) => {
@@ -210,46 +232,76 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
     return toDeg(Math.atan2(a1[0] - a0[0], a1[1] - a0[1]));
   };
 
-  // --- Time remap: activity → video time --------------------------------------------------
-  // Base weight is real time while moving and ~nothing while stopped; climbs get extra screen
-  // time and each moment gets a raised-cosine "dwell" bump sized so it holds ≥ its dwell seconds.
-  const cw = new Float64Array(n);
-  for (let i = 0; i < n - 1; i++) {
-    const inside = i >= from && i < to;
-    cw[i + 1] = cw[i] + (inside ? (t[i + 1] - t[i]) * (moving[i] ? 1 : STOP_WEIGHT) : 0);
-  }
-  const W = cw[n - 1] || 1;
+  // --- Pace: distance along the route → video time ------------------------------------------
+  // Screen time per meter starts from real time while moving (stops get almost none, climbs get
+  // extra), spread onto the 5 m rail. Raw GPS speed is noisy and city rides stop-start, so the
+  // pace is smoothed over ~PACE_SMOOTH_S of video and its contrast reduced: the marker speeds up
+  // and slows down gently instead of crawling and then racing. Moments add a capped slow-down.
+  const bins = K - 1;
+  const binW = new Float64Array(bins);
+  const binOf = (d: number) => Math.min(bins - 1, Math.max(0, Math.floor((d - d0) / RAIL_STEP)));
   const climb = new Float64Array(n).fill(1);
   if (cinematic && a.grade) for (let i = 0; i < n; i++) climb[i] = 1 + 2.5 * Math.max(0, a.grade[i]);
   const climbSmooth = movingAverage(climb, 15);
+  for (let i = from; i < to; i++) {
+    const w = (t[i + 1] - t[i]) * (moving[i] ? 1 : STOP_WEIGHT) * climbSmooth[i];
+    if (!(w > 0)) continue;
+    const da = dist[i];
+    const db = dist[i + 1];
+    if (db - da < 0.5) {
+      binW[binOf(da)] += w;
+      continue;
+    }
+    for (let k = binOf(da); k <= binOf(db); k++) {
+      const overlap = Math.min(db, railD[k + 1]) - Math.max(da, railD[k]);
+      if (overlap > 0) binW[k] += (w * overlap) / (db - da);
+    }
+  }
+  const binLen = new Float64Array(bins);
+  let rate0: Float64Array = new Float64Array(bins);
+  for (let k = 0; k < bins; k++) {
+    binLen[k] = Math.max(1e-6, railD[k + 1] - railD[k]);
+    rate0[k] = binW[k] / binLen[k];
+  }
+  const smoothR = Math.max(1, Math.round((PACE_SMOOTH_S * (d1 - d0)) / FOLLOW / RAIL_STEP / 2));
+  for (let pass = 0; pass < 3; pass++) rate0 = movingAverage(rate0, smoothR);
+  let logSum = 0;
+  for (let k = 0; k < bins; k++) logSum += Math.log(Math.max(1e-9, rate0[k])) * binLen[k];
+  const geo = Math.exp(logSum / (d1 - d0));
+  const rate1 = new Float64Array(bins);
+  let Wb = 0;
+  for (let k = 0; k < bins; k++) {
+    const rel = (Math.max(1e-9, rate0[k]) / geo) ** PACE_CONTRAST;
+    rate1[k] = geo * Math.min(PACE_RANGE, Math.max(1 / PACE_RANGE, rel));
+    Wb += rate1[k] * binLen[k];
+  }
+  const rbar = Wb / (d1 - d0);
 
+  // Moments: a raised-cosine slow-down around each, sized so the callout holds ≥ its dwell.
   const moments = cinematic ? a.moments.filter((m) => m.at >= from && m.at <= to) : [];
-  const half = moments.map(() => W * 0.025);
-  const centers = moments.map((m) => atIndex(cw, m.at));
+  const hwm = Math.max(2 * RAIL_STEP, 0.025 * (d1 - d0));
+  const half = moments.map(() => hwm * rbar);
+  const centers = moments.map((m) => atIndex(dist, m.at));
   let dwell = moments.map((m) => m.dwell);
   const totalDwell = dwell.reduce((x, y) => x + y, 0);
-  if (totalDwell > FOLLOW * 0.55) dwell = dwell.map((d) => (d * FOLLOW * 0.55) / totalDwell);
+  if (totalDwell > FOLLOW * MAX_DWELL_SHARE) dwell = dwell.map((d) => (d * FOLLOW * MAX_DWELL_SHARE) / totalDwell);
   const gain = moments.map(() => 0);
   for (let it = 0; it < 30; it++) {
-    const S = W + gain.reduce((acc, g, k) => acc + g * half[k], 0);
-    for (let k = 0; k < moments.length; k++) gain[k] = Math.max(0, (dwell[k] * S) / FOLLOW - 2 * half[k]) / half[k];
+    const S = Wb + gain.reduce((acc, g, k) => acc + g * half[k], 0);
+    for (let k = 0; k < moments.length; k++) gain[k] = Math.min(MAX_SLOWDOWN - 1, Math.max(0, (dwell[k] * S) / FOLLOW - 2 * half[k]) / half[k]);
   }
-  const bump = (x: number) => {
+  const bump = (d: number) => {
     let m = 0;
     for (let k = 0; k < moments.length; k++) {
-      const u = (x - centers[k]) / half[k];
+      const u = (d - centers[k]) / hwm;
       if (Math.abs(u) < 1) m = Math.max(m, gain[k] * 0.5 * (1 + Math.cos(Math.PI * u)));
     }
     return m;
   };
-  const cwm = new Float64Array(n);
-  for (let i = 0; i < n - 1; i++) {
-    const w = cw[i + 1] - cw[i];
-    cwm[i + 1] = cwm[i] + w * (climbSmooth[i] + bump((cw[i] + cw[i + 1]) / 2));
-  }
-  const Wm = cwm[n - 1] || 1;
-  // Strictly increasing copy for inversion (flat runs outside the visible range would stall it).
-  const cwmInv = Float64Array.from(cwm, (v, i) => v + i * 1e-9);
+  // Cumulative screen weight at each rail point: strictly increasing, so it inverts cleanly.
+  const C = new Float64Array(K);
+  for (let k = 0; k < bins; k++) C[k + 1] = C[k] + (rate1[k] + rbar * bump((railD[k] + railD[k + 1]) / 2)) * binLen[k];
+  const Wm = C[K - 1] || 1;
 
   // Trapezoidal velocity profile: the marker eases from rest at the start and to rest at the finish.
   const ACC = Math.min(0.2, 1.1 / FOLLOW);
@@ -259,14 +311,19 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
     const r = x < ACC ? rampInt(x) : x > 1 - ACC ? 1 - ACC - rampInt(1 - x) : ACC / 2 + (x - ACC);
     return r / (1 - ACC);
   };
+  /** Distance along the route of the athlete marker at video time T. */
+  const distAtT = (T: number) => {
+    if (T <= Tc) return d0;
+    if (T >= Tf) return d1;
+    return atIndex(railD, indexAtDist(C, progress((T - Tc) / FOLLOW) * Wm));
+  };
   const indexAtT = (T: number) => {
     if (T <= Tc) return from;
     if (T >= Tf) return to;
-    const y = progress((T - Tc) / FOLLOW) * Wm;
-    return Math.min(to, Math.max(from, indexAtDist(cwmInv, y + from * 1e-9)));
+    return Math.min(to, Math.max(from, indexAtDist(dist, distAtT(T))));
   };
   function timeAtIndex(i: number): number {
-    const target = (atIndex(cwm, Math.min(to, Math.max(from, i))) / Wm) * 1;
+    const target = interpAt(railD, C, atIndex(dist, Math.min(to, Math.max(from, i)))) / Wm;
     let lo = 0;
     let hi = 1;
     for (let k = 0; k < 40; k++) {
@@ -279,9 +336,9 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
   const momentTimes = moments.map((m, k) => ({ m, T: timeAtIndex(m.at), hw: dwell[k] / 2 }));
 
   // --- Poses ---------------------------------------------------------------------------------
+  // A pose is where the camera looks from (bearing, pitch, distance). Where it looks *at* is
+  // derived after the springs (see `lookAt`), so framing always matches the zoom actually shown.
   interface Pose {
-    x: number;
-    y: number;
     bearing: number;
     pitch: number;
     logD: number;
@@ -292,10 +349,17 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
   const baseD = SPORTS[a.activity.kind].cameraDistance * Math.min(4, Math.max(1, Math.sqrt(extent / 3000))) * (portrait ? 1.12 : 1);
   const chasePitch = overhead ? 0 : 60;
   const lookAhead = Math.min(400, Math.max(150, baseD * 0.45));
+  // The athlete sits on the vertical centerline at this height: above the stats panel, never under it.
+  const subjectY = opts.subjectY ?? (portrait ? 0.54 : 0.58);
+  const subjectTilt = Math.atan(2 * (subjectY - 0.5) * Math.tan(toRad(fov) / 2));
+  /** Ground distance from the athlete to the look-at point that puts them at `subjectY`. */
+  const leadFor = (D: number, pitch: number) => {
+    const p = toRad(pitch);
+    return D * (Math.sin(p) - Math.cos(p) * Math.tan(p - subjectTilt));
+  };
 
-  const distAtT = (T: number) => atIndex(dist, indexAtT(T));
   /** Screen speed (meters of route per video second) widens the shot when things move fast. */
-  const screenSpeed = (T: number) => Math.abs(distAtT(T + 0.25) - distAtT(T - 0.25)) * 2;
+  const screenSpeed = (T: number) => Math.abs(distAtT(T + 0.5) - distAtT(T - 0.5));
 
   const momentBump = (T: number) => {
     let push = 0;
@@ -312,18 +376,12 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
   const chasePose = (T: number): Pose => {
     const d = distAtT(T);
     // Top-down needs more height to show the same stretch of route as an oblique chase.
-    const D = baseD * (overhead ? 2.6 : 1) * (1 + Math.min(1.2, screenSpeed(T) / 900));
+    const D = baseD * (overhead ? 2.6 : 1) * (1 + Math.min(0.8, screenSpeed(T) / 1100));
     const { push, orbit } = momentBump(T);
-    const Dm = D * (1 - push);
-    const dh = Dm * Math.sin(toRad(chasePitch));
-    // Aim a little ahead of the athlete so they sit in the lower third.
-    const [x, y] = railAt(d + dh * 0.18);
     return {
-      x,
-      y,
       bearing: overhead ? 0 : headingAt(d, lookAhead) + orbit * 50,
       pitch: chasePitch - orbit * 6,
-      logD: Math.log(Dm),
+      logD: Math.log(D * (1 - push)),
     };
   };
 
@@ -338,22 +396,15 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
   const metersPerPx = (z: number) => (EARTH * Math.cos(toRad(lat0))) / (512 * 2 ** z);
   const overviewBearing = overhead ? 0 : endPose.bearing + 30;
   // Look at a point "below" the route on screen so the route sits in the clear upper area.
-  const shift = ((H_PX - clearH) / 2) * metersPerPx(fitZ) / Math.cos(toRad(overhead ? 0 : 30));
-  const overview: Pose = {
-    x: cx - Math.sin(toRad(overviewBearing)) * shift,
-    y: cy - Math.cos(toRad(overviewBearing)) * shift,
-    bearing: overviewBearing,
-    pitch: overhead ? 0 : 30,
-    logD: Math.log(camToCenterPx * metersPerPx(fitZ)),
-  };
+  const shift = (((H_PX - clearH) / 2) * metersPerPx(fitZ)) / Math.cos(toRad(overhead ? 0 : 30));
+  const overview: Pose = { bearing: overviewBearing, pitch: overhead ? 0 : 30, logD: Math.log(camToCenterPx * metersPerPx(fitZ)) };
+  const overviewXY: [number, number] = [cx - Math.sin(toRad(overviewBearing)) * shift, cy - Math.cos(toRad(overviewBearing)) * shift];
   const establishD = (extent > 20000 ? 30000 : 15000) / Math.cos(toRad(20));
-  const establish: Pose = reduced
-    ? overview
-    : { x: lerp(cx, startPose.x, 0.5), y: lerp(cy, startPose.y, 0.5), bearing: startPose.bearing - 35, pitch: overhead ? 0 : 20, logD: Math.log(establishD) };
+  const establish: Pose = reduced ? overview : { bearing: startPose.bearing - 35, pitch: overhead ? 0 : 20, logD: Math.log(establishD) };
+  const startXY = markerXY(d0);
+  const establishXY: [number, number] = reduced ? overviewXY : [lerp(cx, startXY[0], 0.5), lerp(cy, startXY[1], 0.5)];
 
-  const blend = (p: Pose, q: Pose, f: number, ft = f, fp = f): Pose => ({
-    x: lerp(p.x, q.x, ft),
-    y: lerp(p.y, q.y, ft),
+  const blend = (p: Pose, q: Pose, f: number, fp = f): Pose => ({
     bearing: p.bearing + wrap180(q.bearing - p.bearing) * f,
     pitch: lerp(p.pitch, q.pitch, fp),
     logD: lerp(p.logD, q.logD, f),
@@ -364,7 +415,7 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
     if (T < Tc) {
       // Establishing drop, landing behind the start partway through the reveal.
       const e = easeInOut(clamp01(T / (INTRO + REVEAL * 0.55)));
-      const p = blend(establish, startPose, e, easeOutExpo(e * 0.9), e ** 1.6);
+      const p = blend(establish, startPose, e, e ** 1.6);
       // A slow push during the reveal so the camera never fully stops before the chase.
       p.logD += Math.log(1 - 0.04 * ramp(T, Tr, REVEAL));
       return p;
@@ -375,15 +426,24 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
       return p;
     }
     // Finish: the marker has stopped; the camera keeps a faint drift into the pull-back.
-    const settle = { ...endPose, logD: endPose.logD + Math.log(0.96) };
     const drift = overhead ? 0 : 4 * Math.min(T - Tf, FINISH);
-    const fin = { ...settle, bearing: settle.bearing + drift };
+    const fin = { ...endPose, bearing: endPose.bearing + drift, logD: endPose.logD + Math.log(0.96) };
     if (T < Tp) return fin;
-    const f = easeInOut(clamp01((T - Tp) / PULLBACK));
-    return blend(fin, overview, f, f, f);
+    return blend(fin, overview, easeInOut(clamp01((T - Tp) / PULLBACK)));
   }
 
-  // --- Bake: springs + rate limits, then terrain clearance ------------------------------------
+  /** How far a zoom move has got, by camera distance actually reached (linear in meters). */
+  const zoomProgress = (D: number, from_: number, to_: number, fallback: number) =>
+    Math.abs(to_ - from_) < 1e-3 * to_ ? fallback : clamp01((D - from_) / (to_ - from_));
+  /** Look-at point that keeps the athlete (at route distance d) on screen at `subjectY`. */
+  const follow = (d: number, D: number, pitch: number, bearing: number): [number, number] => {
+    const [x, y] = markerXY(d);
+    const s = leadFor(D, pitch);
+    const br = toRad(bearing);
+    return [x + Math.sin(br) * s, y + Math.cos(br) * s];
+  };
+
+  // --- Bake: springs + rate limits, then the look-at point, then terrain clearance -----------
   const steps = Math.ceil(duration * BAKE_HZ) + 2;
   const dt = 1 / BAKE_HZ;
   const bx = new Float64Array(steps);
@@ -400,6 +460,10 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
     nv = Math.max(-s.vmax, Math.min(s.vmax, nv));
     return [x + nv * dt, nv];
   };
+  const establishDist = Math.exp(establish.logD);
+  const startDist = Math.exp(startPose.logD) * 0.96;
+  const overviewDist = Math.exp(overview.logD);
+  let finishDist = NaN;
   for (let k = 0; k < steps; k++) {
     const T = k * dt;
     const p = desired(T);
@@ -416,8 +480,28 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
       [st.p, st.pv] = springStep(st.p, st.pv, p.pitch, SPRING.pitch);
       [st.d, st.dv] = springStep(st.d, st.dv, p.logD, SPRING.logD);
     }
-    bx[k] = p.x;
-    by[k] = p.y;
+    // The look-at point follows the athlete using the bearing, pitch and distance the camera has
+    // actually reached, so the athlete stays put on screen however the springs lag. During the
+    // drop-in and the pull-back it slides between the athlete and the wide view in step with the
+    // zoom, so the route never leaves the frame before the camera is high enough to show it.
+    const D = Math.exp(st.d);
+    const chase = follow(distAtT(T), D, st.p, st.b);
+    let x = chase[0];
+    let y = chase[1];
+    if (T < Tc) {
+      // The spring is still a hair short of its target at the handoff, so the slide also completes
+      // by time, over the reveal: the chase then starts exactly on the athlete, without a step.
+      const u = Math.max(zoomProgress(D, establishDist, startDist, 0), smooth(ramp(T, Tr, REVEAL)));
+      x = lerp(establishXY[0], chase[0], u);
+      y = lerp(establishXY[1], chase[1], u);
+    } else if (T >= Tp) {
+      if (Number.isNaN(finishDist)) finishDist = D;
+      const u = zoomProgress(D, finishDist, overviewDist, easeInOut(clamp01((T - Tp) / PULLBACK)));
+      x = lerp(chase[0], overviewXY[0], u);
+      y = lerp(chase[1], overviewXY[1], u);
+    }
+    bx[k] = x;
+    by[k] = y;
     bb[k] = st.b;
     bp[k] = st.p;
     bd[k] = st.d;
@@ -506,7 +590,7 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
       index,
       head: headAt(index),
       statsIndex: indexAtT(Tq),
-      rate: T > Tc && T < Tf ? Math.abs(activityAt(T + 0.1) - activityAt(T - 0.1)) * 5 : 0,
+      rate: T > Tc && T < Tf ? Math.abs(activityAt(T + 0.5) - activityAt(T - 0.5)) : 0,
       moment,
       fx: {
         title: window_(T, 0.2, 0.6, INTRO - 0.55, 0.4),

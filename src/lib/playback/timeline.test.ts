@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { analyze, defaultSettings } from "../analysis/analyze";
 import { parseActivityFile } from "../parse";
+import { atIndex } from "../analysis/series";
 import { buildTimeline } from "./timeline";
 
 const activity = parseActivityFile(readFileSync("public/samples/reservoir-loop.tcx", "utf8"), "reservoir-loop.tcx")[0];
@@ -44,6 +45,23 @@ describe("flyover camera", () => {
       const v1 = z[1] - z[0];
       const v2 = z[3] - z[2];
       expect(Math.abs(v2 - v1)).toBeLessThan(0.02);
+    }
+  });
+
+  it("never jumps the look-at point between frames, even at shot handoffs", () => {
+    // A short chase at 60 fps: the drop-in's zoom spring has the least time to settle.
+    const short = buildTimeline(a, { ...opts, followSeconds: 15 });
+    const frames = Array.from({ length: Math.ceil(short.duration * 60) }, (_, i) => short.frame(i / 60));
+    const step = (f: (typeof frames)[number], g: (typeof frames)[number]) => {
+      const [dx, dy] = [(g.camera.center[0] - f.camera.center[0]) * 111320 * Math.cos((f.camera.center[1] * Math.PI) / 180), (g.camera.center[1] - f.camera.center[1]) * 110574];
+      return [dx, dy];
+    };
+    for (let i = 2; i < frames.length; i++) {
+      const [ax, ay] = step(frames[i - 2], frames[i - 1]);
+      const [bx, by] = step(frames[i - 1], frames[i]);
+      // Change in velocity between frames, relative to the camera distance (meters per meter).
+      const D = (0.5 * opts.height) / Math.tan((36.87 * Math.PI) / 360) * ((40075016.686 * Math.cos((frames[i].camera.center[1] * Math.PI) / 180)) / (512 * 2 ** frames[i].camera.zoom));
+      expect(Math.hypot(bx - ax, by - ay) / D).toBeLessThan(0.004);
     }
   });
 
@@ -90,6 +108,58 @@ describe("flyover camera", () => {
       if (r.zoom < h.zoom - 0.05 || r.pitch < h.pitch - 1) raised = true;
     }
     expect(raised).toBe(true);
+  });
+
+  /** Screen position (fractions of width/height) of a ground point, for a flat-earth pinhole camera. */
+  const screenAt = (cam: (typeof frames)[number]["camera"], [lon, lat]: [number, number]) => {
+    const H = opts.height;
+    const toCenter = (0.5 * H) / Math.tan((36.87 * Math.PI) / 360);
+    const D = toCenter * ((40075016.686 * Math.cos((cam.center[1] * Math.PI) / 180)) / (512 * 2 ** cam.zoom));
+    const e = (lon - cam.center[0]) * 111320 * Math.cos((cam.center[1] * Math.PI) / 180);
+    const n = (lat - cam.center[1]) * 110574;
+    const b = (cam.bearing * Math.PI) / 180;
+    const p = (cam.pitch * Math.PI) / 180;
+    const fwd = D * Math.sin(p) + e * Math.sin(b) + n * Math.cos(b);
+    const right = e * Math.cos(b) - n * Math.sin(b);
+    const h = D * Math.cos(p);
+    const z = fwd * Math.sin(p) + h * Math.cos(p);
+    const down = h * Math.sin(p) - fwd * Math.cos(p);
+    return [0.5 + (right / z) * (toCenter / opts.width), 0.5 + (down / z) * (toCenter / H)];
+  };
+
+  it("keeps the athlete at the same spot on screen, clear of the stats panel", () => {
+    let worstX = 0;
+    let worstY = 0;
+    for (const f of frames) {
+      if (f.shot !== "chase") continue;
+      const [x, y] = screenAt(f.camera, f.head);
+      worstX = Math.max(worstX, Math.abs(x - 0.5));
+      worstY = Math.max(worstY, Math.abs(y - 0.54));
+    }
+    expect(worstX).toBeLessThan(0.06);
+    expect(worstY).toBeLessThan(0.05);
+  });
+
+  it("moves the marker at a steady pace: no crawling then racing, no lurches", () => {
+    const d = frames.filter((f) => f.shot === "chase").map((f) => atIndex(a.dist, f.index));
+    const v = d.slice(1).map((x, i) => x - d[i]);
+    const mid = v.slice(Math.floor(v.length * 0.15), Math.floor(v.length * 0.85));
+    const mean = mid.reduce((x, y) => x + y, 0) / mid.length;
+    for (let i = 1; i < mid.length; i++) expect(Math.abs(mid[i] - mid[i - 1])).toBeLessThan(mean * 0.12);
+    expect(Math.min(...mid)).toBeGreaterThan(mean / 6);
+    expect(Math.max(...mid)).toBeLessThan(mean * 3);
+  });
+
+  it("keeps the finish in frame while pulling back to the whole route", () => {
+    const last = a.samples[a.privacy.to];
+    for (const f of frames) {
+      if (f.T < tl.marks.finish) continue;
+      const [x, y] = screenAt(f.camera, [last.lon, last.lat]);
+      expect(x).toBeGreaterThan(0);
+      expect(x).toBeLessThan(1);
+      expect(y).toBeGreaterThan(0);
+      expect(y).toBeLessThan(1);
+    }
   });
 
   it("goes top-down with no orbits in reduced-motion mode", () => {

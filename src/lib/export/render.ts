@@ -5,7 +5,7 @@ import { type TerrainGrid, sampler } from "../geo/terrainGrid";
 import { drawHud, loadHudFonts } from "../hud/hud";
 import { type ColorMode } from "../map/route";
 import { LOOKS, type LookId, flyoverStyle } from "../map/style";
-import { reloadFailedTiles, retryTiles, tileHealth } from "../map/tileFetch";
+import { planTiles, preloadTiles, releaseTiles, reloadFailedTiles, retryTiles, tileHealth } from "../map/tileFetch";
 import { FlyoverRenderer, addFlyoverLayers, settled } from "../playback/renderer";
 import { type CameraMode, type Timeline, buildTimeline } from "../playback/timeline";
 
@@ -57,6 +57,8 @@ export function exportSize(aspect: Aspect, short: number) {
 }
 
 const PIXEL_RATIO = 2;
+/** Camera samples per second of video when working out which tiles to preload. */
+const PLAN_HZ = 5;
 
 /**
  * Bitrate for the encoder: Mediabunny's "high" quality at 30 fps (≈ 6 Mbps for 1080p H.264, which
@@ -126,6 +128,11 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
     cleanup();
     throw err;
   }
+  // The timeline already knows the ground height under the camera (from the terrain grid). Left
+  // on, MapLibre re-snaps the camera to whichever elevation tile happens to be loaded, which
+  // shifts the whole view up and down as tiles change: visible as jitter.
+  if (opts.terrain) map.setCenterClampedToGround(false);
+  redrawTexturesAtOnce(map);
   addFlyoverLayers(map, look);
   const renderer = new FlyoverRenderer(map, a, { mode: opts.colorMode, color: opts.routeColor, theme: look.ramp }, look);
   const timeline = buildTimeline(a, {
@@ -187,6 +194,31 @@ async function settleFrame(map: MlMap): Promise<boolean> {
   return false;
 }
 
+/**
+ * With 3D terrain, MapLibre draws the map into one texture per terrain tile. After a zoom change
+ * it redraws those textures one per animation frame (smooth for interactive maps), so an export
+ * frame waited 20–40 browser frames for the zoom change it makes on almost every frame. Here
+ * every stale texture is redrawn in the same pass instead: one render per export frame. This
+ * reaches into MapLibre internals, so it checks their shape and does nothing if they change.
+ */
+function redrawTexturesAtOnce(map: MlMap) {
+  type Rtt = {
+    prepareForRender(style: unknown, zoom: number, moving: boolean): void;
+    _textureDifference?(tile: unknown): string;
+    _renderableTiles?: { releaseRTT(painter: unknown): void }[];
+    needsFollowUpFrame: boolean;
+    painter: unknown;
+  };
+  const rtt = (map as unknown as { painter?: { renderToTexture?: Rtt } }).painter?.renderToTexture;
+  if (!rtt || typeof rtt.prepareForRender !== "function" || typeof rtt._textureDifference !== "function") return;
+  const prepare = rtt.prepareForRender.bind(rtt);
+  rtt.prepareForRender = (style, zoom, moving) => {
+    prepare(style, zoom, moving);
+    for (const tile of rtt._renderableTiles ?? []) if (rtt._textureDifference!(tile) !== "none") tile.releaseRTT(rtt.painter);
+    rtt.needsFollowUpFrame = false;
+  };
+}
+
 /** Resolves when the page is visible (immediately if it already is). */
 function whenVisible(signal: AbortSignal): Promise<void> {
   if (typeof document === "undefined" || !document.hidden) return Promise.resolve();
@@ -215,11 +247,21 @@ export async function renderVideo(
   const st = await stage(a, opts, hooks.signal);
   const previewCtx = hooks.preview?.getContext("2d") ?? null;
   try {
-    // No separate tile pre-pass: every frame already waits for its own tiles, so flying the
-    // route twice only doubled the waiting.
+    const limitedAtStart = tileHealth.rateLimited;
+    // Preload every tile the flight needs, many at a time, before drawing anything: frames then
+    // render from local data instead of each one waiting on its own network round trips (which
+    // is what made phones slow, and why the map looked like it loaded in as the camera zoomed).
+    // Each frame still waits for its tiles, so anything the plan missed is fetched on demand.
+    const cameras = [];
+    for (let T = 0; T <= st.timeline.duration; T += 1 / PLAN_HZ) cameras.push(st.timeline.frame(T).camera);
+    let reported = 0;
+    await preloadTiles(planTiles(st.map, cameras), hooks.signal, (done, all) => {
+      if (done < all && performance.now() - reported < 100) return;
+      reported = performance.now();
+      hooks.onProgress({ stage: "tiles", frame: done, total: all, elapsedMs: performance.now() - started, rateLimited: tileHealth.rateLimited - limitedAtStart });
+    });
     const total = Math.ceil(st.timeline.duration * opts.fps);
     let incompleteFrames = 0;
-    const limitedAtStart = tileHealth.rateLimited;
     const drawFrame = async (i: number) => {
       if (!(await st.draw(i / opts.fps))) incompleteFrames++;
       if (previewCtx && hooks.preview) previewCtx.drawImage(st.composite, 0, 0, hooks.preview.width, hooks.preview.height);
@@ -284,6 +326,7 @@ export async function renderVideo(
     return { blob: new Blob(chunks, { type: mime.split(";")[0] }), extension, width: st.W, height: st.H, duration: total / opts.fps, method: "mediarecorder", incompleteFrames };
   } finally {
     st.cleanup();
+    void releaseTiles();
   }
 }
 

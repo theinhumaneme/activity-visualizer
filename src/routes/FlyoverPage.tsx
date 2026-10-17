@@ -162,6 +162,9 @@ export function FlyoverPage() {
   // (Re)build the timeline when framing inputs change, keeping the relative position.
   useEffect(() => {
     if (!ready || !container.current) return;
+    // With the terrain grid the timeline knows the ground height under the camera; don't let
+    // MapLibre re-snap it to whichever elevation tile is loaded (that bobs the view).
+    mapRef.current?.setCenterClampedToGround(!terrainGrid);
     const rebuild = () => {
       const prev = timelineRef.current;
       const frac = prev ? tRef.current / prev.duration : 0;
