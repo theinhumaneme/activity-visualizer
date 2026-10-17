@@ -5,6 +5,7 @@
 import type { Analysis } from "../analysis/types";
 import { mercX, mercY } from "../geo/geo";
 import { drawPreviewHud } from "../hud/hud";
+import type { LiveStat } from "../hud/stats";
 import { ACCENT, type ColorMode, buildChunks, drawable, sampleColors } from "../map/route";
 import { LOOKS, type LookId } from "../map/style";
 import type { FrameState } from "../playback/timeline";
@@ -45,6 +46,7 @@ export interface PreviewOptions {
   routeColor: string;
   colorMode: ColorMode;
   stats: boolean;
+  liveStats?: readonly LiveStat[];
   exaggeration: number;
   followSeconds: number;
 }
@@ -158,6 +160,7 @@ export function drawExportPreview(ctx: CanvasRenderingContext2D, W: number, H: n
     look,
     accent: solid,
     stats: o.stats,
+    liveStats: o.liveStats,
     endCard: false,
     attribution: look.attribution(),
     exaggeration: o.exaggeration,

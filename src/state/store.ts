@@ -9,6 +9,8 @@ import { ACCENT, type ColorMode, ROUTE_COLORS } from "../lib/map/route";
 import { parseInWorker } from "../lib/parse/client";
 import type { LookId } from "../lib/map/style";
 import type { CameraMode } from "../lib/playback/timeline";
+import { DEFAULT_END, DEFAULT_LIVE, type EndStat, type LiveStat } from "../lib/hud/stats";
+import type { CameraDistance } from "../lib/playback/lengths";
 import type { Activity } from "../lib/parse/types";
 import { boundsOf } from "../lib/geo/geo";
 import { type TerrainGrid, gridPoints } from "../lib/geo/terrainGrid";
@@ -20,6 +22,7 @@ const UNITS_KEY = "rv:units";
 const ROUTE_COLOR_KEY = "rv:route-color";
 const PRIVACY_KEY = "rv:privacy-radius";
 const LOOK_KEY = "rv:look";
+const STATS_KEY = "rv:video-stats";
 const LOOK_IDS: LookId[] = ["night", "golden", "editorial", "satellite", "noir", "bluehour", "blueprint"];
 
 function storedLook(): LookId {
@@ -42,6 +45,17 @@ function storedPrivacy(): number {
     // Storage unavailable.
   }
   return DEFAULT_PRIVACY_RADIUS;
+}
+
+function storedStats(): { liveStats: LiveStat[]; endStats: EndStat[]; highlights: boolean } {
+  try {
+    const v = JSON.parse(localStorage.getItem(STATS_KEY) ?? "null") as { liveStats?: unknown; endStats?: unknown; highlights?: unknown } | null;
+    if (v && Array.isArray(v.liveStats) && Array.isArray(v.endStats))
+      return { liveStats: v.liveStats as LiveStat[], endStats: v.endStats as EndStat[], highlights: v.highlights !== false };
+  } catch {
+    // Storage unavailable or corrupt.
+  }
+  return { liveStats: [...DEFAULT_LIVE], endStats: [...DEFAULT_END], highlights: true };
 }
 
 function storedRouteColor(): string {
@@ -81,6 +95,14 @@ interface State {
   /** Flyover map style. */
   look: LookId;
   cameraMode: CameraMode | "free";
+  /** Values the video shows in the live panel and on the end card (saved for next time). */
+  liveStats: LiveStat[];
+  endStats: EndStat[];
+  /** Label highlights (fastest mile, climbs…) on the map in the flyover and video. */
+  highlights: boolean;
+  /** Chase camera distance (auto picks by sport). */
+  cameraDistance: CameraDistance;
+  setCameraDistance(d: CameraDistance): void;
 
   loadText(text: string, fileName: string): Promise<boolean>;
   loadFile(file: File): Promise<boolean>;
@@ -95,6 +117,7 @@ interface State {
   setXAxis(x: "distance" | "time"): void;
   setLook(l: LookId): void;
   setCameraMode(m: CameraMode | "free"): void;
+  setVideoStats(patch: { liveStats?: LiveStat[]; endStats?: EndStat[]; highlights?: boolean }): void;
   reset(): void;
 }
 
@@ -195,6 +218,9 @@ export const useStore = create<State>((set, get) => {
     xAxis: "distance",
     look: storedLook(),
     cameraMode: "cinematic",
+    ...storedStats(),
+    cameraDistance: "auto",
+    setCameraDistance: (d) => set({ cameraDistance: d }),
 
     async loadText(text, fileName) {
       set({ loading: true, error: null });
@@ -308,6 +334,14 @@ export const useStore = create<State>((set, get) => {
       set({ look: l });
     },
     setCameraMode: (m) => set({ cameraMode: m }),
+    setVideoStats(patch) {
+      set(patch);
+      try {
+        localStorage.setItem(STATS_KEY, JSON.stringify({ liveStats: get().liveStats, endStats: get().endStats, highlights: get().highlights }));
+      } catch {
+        // Not critical.
+      }
+    },
     reset() {
       demAbort?.abort();
       selection++;

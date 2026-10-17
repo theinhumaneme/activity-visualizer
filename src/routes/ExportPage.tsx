@@ -1,11 +1,13 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { ColorModePicker } from "../components/ColorModePicker";
-import { Card, Check, ControlRow, Failure, GroupHeading, NextStep, Page, Segmented, Spinner } from "../components/ui";
-import { type Aspect, type ExportProgress, type ExportResult, exportDuration, exportSize, renderPoster, renderVideo } from "../lib/export/render";
+import { Card, Check, ChipSelect, ControlRow, Failure, GroupHeading, NextStep, Page, Segmented, Spinner } from "../components/ui";
+import { type Aspect, type ExportProgress, type ExportResult, exportDuration, exportSize, renderPoster, renderVideo, videoBitrate } from "../lib/export/render";
+import { MAX_END, MAX_LIVE, endOptions, liveOptions } from "../lib/hud/stats";
 import { drawExportPreview } from "../lib/export/preview";
 import { formatDuration } from "../lib/format/format";
 import { loadHudFonts } from "../lib/hud/hud";
 import { LOOKS, type LookId } from "../lib/map/style";
+import { CAMERA_DISTANCES, CHASE_LENGTHS, cameraDistanceScale, lengthLabel, suggestedLength } from "../lib/playback/lengths";
 import { CAMERA_OPTIONS, type CameraMode, autoExaggeration } from "../lib/playback/timeline";
 import { useStore } from "../state/store";
 
@@ -42,11 +44,17 @@ export function ExportPage() {
   const setLook = useStore((s) => s.setLook);
   const storeMode = useStore((s) => s.cameraMode);
   const terrain = useStore((s) => s.terrainGrid);
+  const liveStats = useStore((s) => s.liveStats);
+  const endStats = useStore((s) => s.endStats);
+  const setVideoStats = useStore((s) => s.setVideoStats);
+  const highlights = useStore((s) => s.highlights);
+  const cameraDistance = useStore((s) => s.cameraDistance);
+  const setCameraDistance = useStore((s) => s.setCameraDistance);
   const [kind, setKind] = useState<"video" | "poster">("video");
   const [aspect, setAspect] = useState<Aspect>("9:16");
   const [resolution, setResolution] = useState<720 | 1080>(1080);
   const [fps, setFps] = useState<30 | 60>(30);
-  const [length, setLength] = useState(25);
+  const [length, setLength] = useState<number>(() => suggestedLength(a.activity.routeOnly ? 0 : a.summary.moving));
   const [mode, setMode] = useState<CameraMode>(storeMode === "free" ? "cinematic" : storeMode);
   const [stats, setStats] = useState(true);
   const [endCard, setEndCard] = useState(true);
@@ -78,10 +86,11 @@ export function ExportPage() {
       routeColor,
       colorMode,
       stats: kind === "video" && stats,
+      liveStats,
       exaggeration,
       followSeconds: length,
     });
-  }, [a, aspect, previewW, previewH, lookId, routeColor, colorMode, stats, kind, exaggeration, length, rendering, result, fontsReady]);
+  }, [a, aspect, previewW, previewH, lookId, routeColor, colorMode, stats, liveStats, kind, exaggeration, length, rendering, result, fontsReady]);
 
   async function start() {
     setError(null);
@@ -102,7 +111,11 @@ export function ExportPage() {
       mode,
       exaggeration,
       reducedMotion: reduced,
+      distanceScale: cameraDistanceScale(cameraDistance, a.activity.kind),
       stats,
+      liveStats,
+      endStats,
+      highlights,
       endCard,
       fps,
       terrain,
@@ -196,6 +209,23 @@ export function ExportPage() {
               </div>
             </section>
 
+            <section className="border-t border-grid pt-6">
+              <GroupHeading>Stats</GroupHeading>
+              <div className="space-y-3">
+                {kind === "video" && stats && (
+                  <ControlRow label="During the video" hint={`Up to ${MAX_LIVE}.`}>
+                    <ChipSelect label="Live stats" value={liveStats} max={MAX_LIVE} onChange={(v) => setVideoStats({ liveStats: v })} options={liveOptions(a)} />
+                  </ControlRow>
+                )}
+                {(kind === "poster" || endCard) && (
+                  <ControlRow label={kind === "poster" ? "On the poster" : "On the end card"} hint={`Up to ${MAX_END}.`}>
+                    <ChipSelect label="End card stats" value={endStats} max={MAX_END} onChange={(v) => setVideoStats({ endStats: v })} options={endOptions(a)} />
+                  </ControlRow>
+                )}
+                {kind === "video" && !stats && !endCard && <p className="text-label text-muted">Turn on live stats or the end card under Video to choose what they show.</p>}
+              </div>
+            </section>
+
             {kind === "video" && (
               <section className="border-t border-grid pt-6">
                 <GroupHeading>Video</GroupHeading>
@@ -212,8 +242,18 @@ export function ExportPage() {
                       ]}
                     />
                   </ControlRow>
-                  <ControlRow label="Chase length">
-                    <Segmented size="sm" label="Length" value={String(length)} onChange={(v) => setLength(Number(v))} options={[15, 25, 35].map((l) => ({ value: String(l), label: `${l} s` }))} />
+                  <ControlRow
+                    label="Route playback"
+                    hint={
+                      a.activity.routeOnly
+                        ? "Time spent following the route; the opening and ending add ~10 s."
+                        : `Time spent following you along the route (${Math.max(1, Math.round(a.summary.moving / length))}× real time); the opening and ending add ~10 s.`
+                    }
+                  >
+                    <Segmented size="sm" label="Route playback length" value={String(length)} onChange={(v) => setLength(Number(v))} options={CHASE_LENGTHS.map((l) => ({ value: String(l), label: lengthLabel(l) }))} />
+                  </ControlRow>
+                  <ControlRow label="Camera distance" hint={cameraDistance === "auto" ? (["run", "ride", "walk"].includes(a.activity.kind) ? "Close for this activity." : "Far for this activity.") : undefined}>
+                    <Segmented size="sm" label="Camera distance" value={cameraDistance} onChange={setCameraDistance} options={CAMERA_DISTANCES} />
                   </ControlRow>
                   <ControlRow label="Camera">
                     <Segmented
@@ -234,6 +274,10 @@ export function ExportPage() {
                         <input type="checkbox" checked={endCard} onChange={(e) => setEndCard(e.target.checked)} />
                         End card with totals
                       </label>
+                      <label className="flex items-center gap-2.5">
+                        <input type="checkbox" checked={highlights} onChange={(e) => setVideoStats({ highlights: e.target.checked })} />
+                        Highlights on the map (fastest mile, climbs…)
+                      </label>
                     </div>
                   </ControlRow>
                 </div>
@@ -245,7 +289,9 @@ export function ExportPage() {
             <p className="mb-4 text-sm text-ink-2 tabular">
               <span className="font-semibold text-ink">
                 {size.width}×{size.height}
-                {kind === "video" ? `, ${fps} fps${fps === 60 ? " (smoother, about twice the render time)" : ""}, about ${formatDuration(totalSeconds)}` : ", PNG"}
+                {kind === "video"
+                  ? `, ${fps} fps${fps === 60 ? " (smoother, about twice the render time)" : ""}, about ${formatDuration(totalSeconds)}, ~${Math.max(1, Math.round((videoBitrate("avc", size.width, size.height, fps) * totalSeconds) / 8 / 1e6))} MB`
+                  : ", PNG"}
               </span>
               <br />
               {a.settings.privacyRadius > 0 ? `Privacy zone on: ${a.settings.privacyRadius} m around start and finish left out.` : "Privacy zone off: your start and finish are visible. Turn it on in Check."}

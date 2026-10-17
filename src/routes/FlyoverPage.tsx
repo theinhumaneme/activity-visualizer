@@ -1,5 +1,5 @@
 import { Map as MlMap } from "maplibre-gl";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ColorModePicker } from "../components/ColorModePicker";
 import { ControlRow, Failure, Loading, NextStep, Page, Segmented } from "../components/ui";
 import { formatDuration } from "../lib/format/format";
@@ -9,11 +9,19 @@ import { COLOR_MODES, modeAvailable } from "../lib/map/route";
 import { LOOKS, type LookId, flyoverStyle } from "../lib/map/style";
 import { retryTiles } from "../lib/map/tileFetch";
 import { FlyoverRenderer, addFlyoverLayers } from "../lib/playback/renderer";
+import { CAMERA_DISTANCES, CHASE_LENGTHS, cameraDistanceScale, lengthLabel, suggestedLength } from "../lib/playback/lengths";
 import { CAMERA_OPTIONS, type CameraMode, type FrameState, type Timeline, autoExaggeration, buildTimeline } from "../lib/playback/timeline";
 import { DEFAULT_PRIVACY_RADIUS, useStore } from "../state/store";
 
-const LENGTHS = [15, 25, 45] as const;
 const SPEEDS = ["0.5", "1", "2", "4"] as const;
+
+/** Preview frame: the wide page view, or the shape of a portrait / square export. */
+type Shape = "wide" | "9:16" | "1:1";
+const SHAPES: { value: Shape; label: string; style?: CSSProperties }[] = [
+  { value: "wide", label: "Landscape" },
+  { value: "9:16", label: "Portrait 9:16", style: { width: "min(100%, calc(72dvh * 9 / 16), 460px)", aspectRatio: "9 / 16" } },
+  { value: "1:1", label: "Square 1:1", style: { width: "min(100%, 66dvh, 680px)", aspectRatio: "1 / 1" } },
+];
 const MODES: { value: CameraMode | "free"; label: string; title: string }[] = [
   ...CAMERA_OPTIONS,
   { value: "free", label: "Free orbit", title: "You steer the camera; the run keeps playing" },
@@ -41,6 +49,12 @@ export function FlyoverPage() {
   const cameraMode = useStore((s) => s.cameraMode);
   const setCameraMode = useStore((s) => s.setCameraMode);
   const terrainGrid = useStore((s) => s.terrainGrid);
+  const liveStats = useStore((s) => s.liveStats);
+  const endStats = useStore((s) => s.endStats);
+  const highlights = useStore((s) => s.highlights);
+  const cameraDistance = useStore((s) => s.cameraDistance);
+  const setCameraDistance = useStore((s) => s.setCameraDistance);
+  const setVideoStats = useStore((s) => s.setVideoStats);
   const updateSettings = useStore((s) => s.updateSettings);
   const reduced = useReducedMotion();
   const look = LOOKS[lookId];
@@ -60,7 +74,9 @@ export function FlyoverPage() {
   const [attempt, setAttempt] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>("1");
-  const [length, setLength] = useState<(typeof LENGTHS)[number]>(25);
+  // Phones start in portrait, the shape they'll most likely export.
+  const [shape, setShape] = useState<Shape>(() => (typeof matchMedia !== "undefined" && matchMedia("(max-width: 639px)").matches ? "9:16" : "wide"));
+  const [length, setLength] = useState<number>(() => suggestedLength(a.activity.routeOnly ? 0 : a.summary.moving));
   const [frame, setFrame] = useState<FrameState | null>(null);
   /** When the time label and scrubber last re-rendered during playback. */
   const uiAt = useRef(0);
@@ -86,6 +102,9 @@ export function FlyoverPage() {
         accent: routeColor,
         stats: true,
         endCard: true,
+        liveStats,
+        endStats,
+        highlights,
         attribution: "",
         // Keep the stats clear of the map's own attribution control.
         bottomInset: 40 * dpr,
@@ -96,7 +115,7 @@ export function FlyoverPage() {
         },
       });
     },
-    [a, look, routeColor, exaggeration],
+    [a, look, routeColor, exaggeration, liveStats, endStats, highlights],
   );
 
   /**
@@ -200,6 +219,7 @@ export function FlyoverPage() {
         mode: cameraMode === "free" ? "chase" : cameraMode,
         exaggeration,
         reducedMotion: reduced,
+        distanceScale: cameraDistanceScale(cameraDistance, a.activity.kind),
         elevationAt: terrainGrid ? sampler(terrainGrid, NaN) : null,
       });
       show(frac * timelineRef.current.duration);
@@ -214,7 +234,7 @@ export function FlyoverPage() {
       ro.disconnect();
       cancelAnimationFrame(pending);
     };
-  }, [ready, a, length, cameraMode, reduced, exaggeration, terrainGrid, show]);
+  }, [ready, a, length, cameraMode, cameraDistance, reduced, exaggeration, terrainGrid, show]);
 
   // Free orbit hands the camera to you; the marker keeps playing.
   useEffect(() => {
@@ -310,8 +330,14 @@ export function FlyoverPage() {
     >
       <div className="overflow-hidden rounded-card border border-grid bg-surface shadow-[var(--shadow-raised)]">
         <div data-map={look.hud === "light" ? "light" : "dark"} className="relative bg-[#101214] text-white">
-          <div ref={container} className={`h-[56dvh] min-h-[340px] w-full sm:h-[66dvh] ${free ? "cursor-grab" : ""}`} />
-          <canvas ref={hud} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden />
+          <div
+            className={shape === "wide" ? "relative h-[56dvh] min-h-[340px] w-full sm:h-[66dvh]" : "relative mx-auto max-w-full"}
+            style={SHAPES.find((f) => f.value === shape)?.style}
+          >
+            {/* Sized with h-full/w-full: MapLibre makes its container position: relative. */}
+            <div ref={container} className={`h-full w-full ${free ? "cursor-grab" : ""}`} />
+            <canvas ref={hud} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden />
+          </div>
 
           {(loadingTiles || !ready) && !styleError && <Loading overlay dark label="Loading terrain and imagery…" />}
           {styleError && (
@@ -367,6 +393,9 @@ export function FlyoverPage() {
           <h2 id="fly-view" className="text-base font-semibold">
             View
           </h2>
+          <ControlRow label="Frame">
+            <Segmented size="sm" label="Frame" value={shape} onChange={setShape} options={SHAPES.map(({ value, label }) => ({ value, label }))} />
+          </ControlRow>
           <ControlRow label="Camera">
             <Segmented
               size="sm"
@@ -375,6 +404,9 @@ export function FlyoverPage() {
               onChange={setCameraMode}
               options={MODES.map((m) => ({ ...m, disabled: reduced && m.value !== "overhead" && m.value !== "free" }))}
             />
+          </ControlRow>
+          <ControlRow label="Camera distance" hint={cameraDistance === "auto" ? (["run", "ride", "walk"].includes(a.activity.kind) ? "Close for this activity." : "Far for this activity.") : undefined}>
+            <Segmented size="sm" label="Camera distance" value={cameraDistance} onChange={setCameraDistance} options={CAMERA_DISTANCES} />
           </ControlRow>
           <ControlRow label="Map style">
             <Segmented
@@ -385,13 +417,25 @@ export function FlyoverPage() {
               options={Object.values(LOOKS).map((l) => ({ value: l.id, label: l.label }))}
             />
           </ControlRow>
-          <ControlRow label="Duration">
+          <ControlRow label="Route playback" hint={a.activity.routeOnly ? undefined : `${Math.max(1, Math.round(a.summary.moving / length))}× real time`}>
             <Segmented
               size="sm"
-              label="Length"
+              label="Route playback length"
               value={String(length)}
-              onChange={(v) => setLength(Number(v) as (typeof LENGTHS)[number])}
-              options={LENGTHS.map((l) => ({ value: String(l), label: `${l} s` }))}
+              onChange={(v) => setLength(Number(v))}
+              options={CHASE_LENGTHS.map((l) => ({ value: String(l), label: lengthLabel(l) }))}
+            />
+          </ControlRow>
+          <ControlRow label="Highlights">
+            <Segmented
+              size="sm"
+              label="Highlights"
+              value={highlights ? "on" : "off"}
+              onChange={(v) => setVideoStats({ highlights: v === "on" })}
+              options={[
+                { value: "on", label: "On the map" },
+                { value: "off", label: "Off" },
+              ]}
             />
           </ControlRow>
           <ControlRow label="Speed">

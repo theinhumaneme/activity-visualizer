@@ -24,6 +24,8 @@ import type { LngLat } from "../geo/geo";
 import { RAMPS, zoneIndex } from "../map/route";
 import type { Look } from "../map/style";
 import type { FrameState } from "../playback/timeline";
+import { SPORTS } from "../sport";
+import { DEFAULT_END, DEFAULT_LIVE, type EndStat, type LiveStat, pickEnd, pickLive } from "./stats";
 
 // The app's typeface, so overlays and exports match the interface. Titles are Inter at a heavier weight.
 export const FONT_SANS = '"Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
@@ -61,6 +63,11 @@ export interface HudOptions {
   poster?: boolean;
   /** Canvas pixels to keep clear at the bottom (e.g. the live map's attribution control). */
   bottomInset?: number;
+  /** Values in the live panel and on the end card (defaults: DEFAULT_LIVE / DEFAULT_END). */
+  liveStats?: readonly LiveStat[];
+  endStats?: readonly EndStat[];
+  /** Label highlights (fastest mile, climbs…) on the map as the athlete passes them (default on). */
+  highlights?: boolean;
 }
 
 interface Palette {
@@ -107,7 +114,7 @@ export function drawHud(ctx: CanvasRenderingContext2D, W: number, H: number, a: 
     if (p) chip(ctx, p, "START", f.fx.start, s, P, o.accent);
   }
   if (o.stats && f.fx.hud > 0 && !a.privacy.empty) drawStats(ctx, W, H, s, a, f, o, P, portrait, pad, safeBottom);
-  if (f.moment && f.fx.hud > 0) drawMoment(ctx, W, s, a, f, o, P, portrait, pad, safeTop);
+  if (f.moment && f.fx.hud > 0 && o.highlights !== false) drawMoment(ctx, W, s, a, f, o, P);
   if (f.fx.finish > 0) drawFinish(ctx, W, s, a, f.fx.finish, o, P, titleFont, safeTop, portrait);
   if (f.shot === "chase" || f.shot === "reveal") drawDisclosure(ctx, W, s, f, o, P, pad, safeTop, portrait);
   if (o.endCard && f.fx.summary > 0) drawEndCard(ctx, W, H, s, a, f.fx.summary, o, P, titleFont, portrait, safeTop, safeBottom, false);
@@ -135,7 +142,7 @@ export function drawPreviewHud(ctx: CanvasRenderingContext2D, W: number, H: numb
   if (o.stats && !a.privacy.empty) {
     drawStats(ctx, W, H, s, a, f, o, P, portrait, pad, safeBottom);
     if (!portrait) {
-      const items = liveItems(a, f.statsIndex).length;
+      const items = liveItems(a, f.statsIndex, o.liveStats).length;
       const cols = W < H * 1.3 ? 3 : items;
       const panelTop = safeBottom - (Math.ceil(items / cols) * 108 * s + 74 * s + 40 * s);
       lift = Math.max(0, H - 129 * s - (panelTop - 28 * s));
@@ -182,7 +189,7 @@ function drawMarkers(ctx: CanvasRenderingContext2D, s: number, a: Analysis, f: F
   const last = a.samples[a.privacy.to];
   pin([first.lon, first.lat], START_PIN, 6);
   if (ended) pin([last.lon, last.lat], "#111111", 6);
-  if (f.moment) pin(momentPoint(a, f.moment.m.at), o.accent, 5, f.moment.alpha);
+  if (f.moment && o.highlights !== false) pin(momentPoint(a, f.moment.m.at), o.accent, 5, f.moment.alpha);
 
   if (f.fx.burst > 0 && f.fx.burst < 1) {
     const p = project([last.lon, last.lat]);
@@ -285,7 +292,7 @@ function drawStats(
   safeBottom: number,
 ) {
   const alpha = f.fx.hud;
-  const items = liveItems(a, f.statsIndex);
+  const items = liveItems(a, f.statsIndex, o.liveStats);
   const square = !portrait && W < H * 1.3;
   const cols = portrait || square ? 3 : items.length;
   const rows = Math.ceil(items.length / cols);
@@ -330,41 +337,56 @@ interface Item {
   dot?: string;
 }
 
-/** Live HUD values at a (10 Hz) marker index: real elapsed time, distance, pace, HR, elevation, grade. */
-function liveItems(a: Analysis, i: number): Item[] {
+/** Live HUD values at a (10 Hz) marker index, for the chosen stats the activity has. */
+function liveItems(a: Analysis, i: number, chosen: readonly LiveStat[] = DEFAULT_LIVE): Item[] {
   const u = a.settings.units;
   const kind = a.activity.kind;
-  const out: Item[] = [];
   const unit = unitLabel(u);
-  if (!a.activity.routeOnly) out.push({ label: "TIME", value: formatDuration(atIndex(a.t, i)) });
-  out.push({ label: "DISTANCE", value: (atIndex(a.dist, i) / (u === "metric" ? 1000 : 1609.344)).toFixed(2), unit });
-  if (!a.activity.routeOnly) {
-    const v = atIndex(a.speedLive, i);
-    const moving = a.moving[Math.min(a.n - 2, Math.floor(i))] === 1 && v > 0.5;
-    const pace = usesPace(kind);
-    out.push({
-      label: motionLabel(kind).toUpperCase(),
-      value: !moving || i <= a.privacy.from ? "—" : pace ? formatPace(1000 / v, u, false) : formatSpeed(v, u, false),
-      unit: !moving && i > a.privacy.from ? "paused" : pace ? `/${unit}` : u === "metric" ? "km/h" : "mph",
-    });
-  }
-  if (a.zones.length) {
-    const hr = atIndex(a.hr, i);
-    const z = Number.isFinite(hr) ? zoneIndex(a, hr) : -1;
-    out.push({
-      label: z >= 0 ? `HR · Z${z + 1}` : "HR",
-      value: Number.isFinite(hr) ? String(Math.round(hr)) : "—",
-      unit: "bpm",
-      dot: z >= 0 ? RAMPS.zone.dark[z] : undefined,
-    });
-  }
-  if (a.elev) {
-    const e = atIndex(a.elev, i);
-    out.push({ label: "ELEV", value: formatElevation(e, u).split(" ")[0], unit: u === "metric" ? "m" : "ft" });
-  }
-  if (a.grade) {
-    const g = atIndex(a.grade, i) * 100;
-    out.push({ label: "GRADE", value: `${g > 0.5 ? "+" : g < -0.5 ? "−" : ""}${Math.abs(Math.round(g))}`, unit: "%" });
+  const k = Math.min(a.n - 1, Math.max(0, Math.round(i)));
+  const out: Item[] = [];
+  for (const key of pickLive(a, chosen)) {
+    if (key === "time") out.push({ label: "TIME", value: formatDuration(atIndex(a.t, i)) });
+    else if (key === "moving") out.push({ label: "MOVING", value: formatDuration(atIndex(a.movingTime, i)) });
+    else if (key === "distance") out.push({ label: "DISTANCE", value: (atIndex(a.dist, i) / (u === "metric" ? 1000 : 1609.344)).toFixed(2), unit });
+    else if (key === "motion") {
+      const v = atIndex(a.speedLive, i);
+      const moving = a.moving[Math.min(a.n - 2, Math.floor(i))] === 1 && v > 0.5;
+      const pace = usesPace(kind);
+      out.push({
+        label: motionLabel(kind).toUpperCase(),
+        value: !moving || i <= a.privacy.from ? "—" : pace ? formatPace(1000 / v, u, false) : formatSpeed(v, u, false),
+        unit: !moving && i > a.privacy.from ? "paused" : pace ? `/${unit}` : u === "metric" ? "km/h" : "mph",
+      });
+    } else if (key === "hr") {
+      const hr = atIndex(a.hr, i);
+      const z = Number.isFinite(hr) ? zoneIndex(a, hr) : -1;
+      out.push({
+        label: z >= 0 ? `HR · Z${z + 1}` : "HR",
+        value: Number.isFinite(hr) ? String(Math.round(hr)) : "—",
+        unit: "bpm",
+        dot: z >= 0 ? RAMPS.zone.dark[z] : undefined,
+      });
+    } else if (key === "elev") {
+      out.push({ label: "ELEV", value: formatElevation(atIndex(a.elev!, i), u).split(" ")[0], unit: u === "metric" ? "m" : "ft" });
+    } else if (key === "grade") {
+      const g = atIndex(a.grade!, i) * 100;
+      out.push({ label: "GRADE", value: `${g > 0.5 ? "+" : g < -0.5 ? "−" : ""}${Math.abs(Math.round(g))}`, unit: "%" });
+    } else if (key === "cadence") {
+      const c = atIndex(a.cadence!, i);
+      out.push({ label: "CADENCE", value: Number.isFinite(c) && c > 0 ? String(Math.round(c)) : "—", unit: SPORTS[kind].footCadence ? "spm" : "rpm" });
+    } else if (key === "power") {
+      // A few seconds' average: single-second power jumps too much to read.
+      let sum = 0;
+      let cnt = 0;
+      for (let j = Math.max(0, k - 3); j <= Math.min(a.n - 1, k + 3); j++) {
+        const p = a.samples[j].power;
+        if (p !== undefined) {
+          sum += p;
+          cnt++;
+        }
+      }
+      out.push({ label: "POWER", value: cnt ? String(Math.round(sum / cnt)) : "—", unit: "W" });
+    }
   }
   return out;
 }
@@ -454,39 +476,41 @@ function drawStrip(ctx: CanvasRenderingContext2D, a: Analysis, index: number, x:
   }
 }
 
-function drawMoment(ctx: CanvasRenderingContext2D, W: number, s: number, a: Analysis, f: FrameState, o: HudOptions, P: Palette, portrait: boolean, pad: number, safeTop: number) {
+/**
+ * A highlight (fastest mile, a climb, a rep…) as a compact label pinned just above its spot on the
+ * map, with a short stem, instead of a card in the corner with a long leader line. Skipped while
+ * the spot is off screen.
+ */
+function drawMoment(ctx: CanvasRenderingContext2D, W: number, s: number, a: Analysis, f: FrameState, o: HudOptions, P: Palette) {
   const { m, alpha } = f.moment!;
-  const cardW = Math.min(W - 2 * pad, 560 * s);
-  const cardH = 150 * s;
-  const x0 = pad;
-  const y0 = safeTop + (portrait ? 40 : 90) * s - (1 - alpha) * 14 * s;
+  const p = o.project?.(momentPoint(a, m.at));
+  if (!p) return;
+  const tone = m.hero ? o.accent : P.mid;
   ctx.save();
   ctx.globalAlpha = alpha * f.fx.hud;
-  // Leader line to the map point, drawn first so the card sits on top.
-  const p = o.project?.(momentPoint(a, m.at));
-  if (p) {
-    ctx.strokeStyle = m.hero ? o.accent : P.hi;
-    ctx.lineWidth = 2 * s;
-    ctx.beginPath();
-    const sx = Math.min(Math.max(p[0], x0 + 24 * s), x0 + cardW - 24 * s);
-    ctx.moveTo(sx, y0 + cardH);
-    ctx.lineTo(p[0], p[1]);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(p[0], p[1], 6 * s, 0, Math.PI * 2);
-    ctx.fillStyle = m.hero ? o.accent : P.hi;
-    ctx.fill();
-  }
-  panel(ctx, x0, y0, cardW, cardH, 18 * s, P);
-  ctx.fillStyle = m.hero ? o.accent : P.hi;
-  ctx.fillRect(x0, y0 + 18 * s, 5 * s, cardH - 36 * s);
-  spaced(ctx, m.label, x0 + 30 * s, y0 + 40 * s, 17 * s, m.hero ? o.accent : P.mid, 700);
+  ctx.font = `700 ${15 * s}px ${FONT_SANS}`;
+  const labelW = ctx.measureText(m.label).width + m.label.length * 15 * s * 0.08;
+  ctx.font = `600 ${28 * s}px ${FONT_SANS}`;
+  const valueW = ctx.measureText(m.value).width;
+  const h = 52 * s;
+  const w = 24 * s + labelW + 12 * s + valueW + 24 * s;
+  const x = Math.min(Math.max(p[0] - w / 2, 16 * s), W - w - 16 * s);
+  const rise = (1 - alpha) * 8 * s;
+  // Above the spot, or below it when there's no room near the top of the frame.
+  const above = p[1] - h - 40 * s > 16 * s;
+  const y = (above ? p[1] - h - 40 * s : p[1] + 40 * s) + (above ? rise : -rise);
+  ctx.strokeStyle = tone;
+  ctx.lineWidth = 2 * s;
+  ctx.beginPath();
+  ctx.moveTo(p[0], above ? y + h : y);
+  ctx.lineTo(p[0], above ? p[1] - 8 * s : p[1] + 8 * s);
+  ctx.stroke();
+  panel(ctx, x, y, w, h, h / 2, P);
+  spaced(ctx, m.label, x + 24 * s, y + h * 0.62, 15 * s, tone, 700);
   ctx.fillStyle = P.hi;
-  ctx.font = `600 ${50 * s}px ${FONT_SANS}`;
-  tabular(ctx, m.value, x0 + 30 * s, y0 + 96 * s);
-  ctx.font = `500 ${20 * s}px ${FONT_SANS}`;
-  ctx.fillStyle = P.mid;
-  ctx.fillText(truncate(ctx, m.context, cardW - 60 * s), x0 + 30 * s, y0 + 128 * s);
+  ctx.font = `600 ${28 * s}px ${FONT_SANS}`;
+  ctx.textAlign = "left";
+  ctx.fillText(m.value, x + 24 * s + labelW + 12 * s, y + h * 0.68);
   ctx.restore();
 }
 
@@ -544,7 +568,7 @@ function drawEndCard(
   ctx.save();
   ctx.globalAlpha = alpha;
 
-  const stats = endStats(a);
+  const stats = endStats(a, o.endStats);
   const cols = portrait ? 2 : Math.min(stats.length, W > H * 1.3 ? 5 : 3);
   const rows = Math.ceil(stats.length / cols);
   const pad = 64 * s;
@@ -600,23 +624,37 @@ function drawEndCard(
   ctx.restore();
 }
 
-/** Distance · moving time · avg pace · elev gain · avg HR (only what the data has). */
-function endStats(a: Analysis): Item[] {
+/** End-card summary, for the chosen stats the activity has (default: distance, total time, avg pace, gain, avg HR). */
+function endStats(a: Analysis, chosen: readonly EndStat[] = DEFAULT_END): Item[] {
   const sm = a.summary;
   const u = a.settings.units;
   const kind = a.activity.kind;
-  const out: Item[] = [{ label: "DISTANCE", value: (sm.distance / (u === "metric" ? 1000 : 1609.344)).toFixed(2), unit: unitLabel(u) }];
-  if (!a.activity.routeOnly) {
-    out.push({ label: "MOVING TIME", value: formatDuration(sm.moving) });
-    const m = formatMotion(sm.avgSpeed, kind, u);
-    const [v, ...rest] = m.split(" ");
-    out.push({ label: `AVG ${motionLabel(kind).toUpperCase()}`, value: v, unit: rest.join(" ") });
+  const split = (text: string) => {
+    const [value, ...rest] = text.split(" ");
+    return { value, unit: rest.join(" ") || undefined };
+  };
+  const out: Item[] = [];
+  for (const key of pickEnd(a, chosen)) {
+    if (key === "distance") out.push({ label: "DISTANCE", value: (sm.distance / (u === "metric" ? 1000 : 1609.344)).toFixed(2), unit: unitLabel(u) });
+    else if (key === "total") out.push({ label: "TOTAL TIME", value: formatDuration(sm.elapsed) });
+    else if (key === "moving") out.push({ label: "MOVING TIME", value: formatDuration(sm.moving) });
+    else if (key === "stopped") out.push({ label: "STOPPED", value: formatDuration(sm.stoppedTime) });
+    else if (key === "avg") out.push({ label: `AVG ${motionLabel(kind).toUpperCase()}`, ...split(formatMotion(sm.avgSpeed, kind, u)) });
+    else if (key === "best")
+      out.push(
+        usesPace(kind)
+          ? { label: "BEST PACE", value: formatPace(sm.bestPace, u, false), unit: `/${unitLabel(u)}` }
+          : { label: "MAX SPEED", value: formatSpeed(sm.maxSpeed, u, false), unit: u === "metric" ? "km/h" : "mph" },
+      );
+    else if (key === "gain") out.push({ label: "ELEV GAIN", ...split(formatElevation(sm.elevGain!, u)) });
+    else if (key === "loss") out.push({ label: "ELEV LOSS", ...split(formatElevation(sm.elevLoss!, u)) });
+    else if (key === "high") out.push({ label: "HIGH POINT", ...split(formatElevation(sm.elevMax!, u)) });
+    else if (key === "avgHr") out.push({ label: "AVG HR", value: String(Math.round(sm.avgHr!)), unit: "bpm" });
+    else if (key === "maxHr") out.push({ label: "MAX HR", value: String(Math.round(sm.maxHr!)), unit: "bpm" });
+    else if (key === "cadence") out.push({ label: "AVG CADENCE", value: String(Math.round(sm.avgCadence!)), unit: SPORTS[kind].footCadence ? "spm" : "rpm" });
+    else if (key === "power") out.push({ label: "AVG POWER", value: String(Math.round(sm.avgPower!)), unit: "W" });
+    else if (key === "calories") out.push({ label: "CALORIES", value: Math.round(sm.calories!).toLocaleString("en-US"), unit: "kcal" });
   }
-  if (sm.elevGain !== undefined) {
-    const [v, unit] = formatElevation(sm.elevGain, u).split(" ");
-    out.push({ label: "ELEV GAIN", value: v, unit });
-  }
-  if (sm.avgHr !== undefined) out.push({ label: "AVG HR", value: String(Math.round(sm.avgHr)), unit: "bpm" });
   return out;
 }
 

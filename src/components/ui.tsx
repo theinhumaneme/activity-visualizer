@@ -283,6 +283,48 @@ export function Segmented<T extends string>({
   );
 }
 
+/**
+ * Pick several of a set of options (chips, styled like Segmented's). Order follows the options.
+ * Once `max` are on, the rest are disabled until one is turned off.
+ */
+export function ChipSelect<T extends string>({
+  value,
+  options,
+  onChange,
+  label,
+  max = Infinity,
+}: {
+  value: readonly T[];
+  options: { value: T; label: ReactNode }[];
+  onChange: (v: T[]) => void;
+  label: string;
+  max?: number;
+}) {
+  const full = value.filter((v) => options.some((o) => o.value === v)).length >= max;
+  return (
+    <div role="group" aria-label={label} className="flex max-w-full flex-wrap gap-1.5">
+      {options.map((o) => {
+        const on = value.includes(o.value);
+        return (
+          <button
+            key={o.value}
+            type="button"
+            aria-pressed={on}
+            disabled={!on && full}
+            title={!on && full ? `Up to ${max}: turn one off first` : undefined}
+            onClick={() => onChange(on ? value.filter((v) => v !== o.value) : [...value, o.value])}
+            className={`inline-flex min-h-7 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-2.5 text-[13px] font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
+              on ? "border border-ink bg-ink text-page" : "border border-grid bg-surface-2 text-ink-2 hover:border-line hover:text-ink"
+            }`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /** A labeled row of controls: label on the left on wide screens, above on phones. */
 export function ControlRow({ label, children, hint }: { label: ReactNode; children: ReactNode; hint?: ReactNode }) {
   return (

@@ -107,6 +107,8 @@ export interface TimelineOptions {
   fov?: number;
   /** Where the athlete sits on screen, as a fraction of the height from the top (clear of the HUD). */
   subjectY?: number;
+  /** Multiplier on the chase camera's distance (1 = the sport's default). */
+  distanceScale?: number;
 }
 
 export interface Timeline {
@@ -378,7 +380,7 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
   const extent = Math.max(200, Math.hypot((bounds.east - bounds.west) * kx, (bounds.north - bounds.south) * ky));
   const portrait = H_PX > W_PX * 1.05;
   // Camera distance suits the sport: close for a swim or a walk, further back for a ride.
-  const baseD = SPORTS[a.activity.kind].cameraDistance * Math.min(4, Math.max(1, Math.sqrt(extent / 3000))) * (portrait ? 1.12 : 1);
+  const baseD = SPORTS[a.activity.kind].cameraDistance * Math.min(4, Math.max(1, Math.sqrt(extent / 3000))) * (portrait ? 1.12 : 1) * (opts.distanceScale ?? 1);
   const chasePitch = rig.pitch;
   const lookAhead = Math.min(400, Math.max(150, baseD * 0.45));
   // The athlete sits on the vertical centerline at this height: above the stats panel, never under it.

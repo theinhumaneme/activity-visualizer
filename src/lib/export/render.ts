@@ -4,6 +4,7 @@ import type { VideoCodec } from "mediabunny";
 import type { Analysis } from "../analysis/types";
 import { type TerrainGrid, sampler } from "../geo/terrainGrid";
 import { drawHud, loadHudFonts } from "../hud/hud";
+import type { EndStat, LiveStat } from "../hud/stats";
 import { type ColorMode } from "../map/route";
 import { LOOKS, type LookId, flyoverStyle } from "../map/style";
 import { planTiles, preloadTiles, releaseTiles, reloadFailedTiles, retryTiles, tileHealth } from "../map/tileFetch";
@@ -24,6 +25,12 @@ export interface ExportOptions {
   exaggeration: number;
   reducedMotion: boolean;
   stats: boolean;
+  /** Which live values and end-card totals to show. */
+  liveStats?: readonly LiveStat[];
+  endStats?: readonly EndStat[];
+  highlights?: boolean;
+  /** Multiplier on the chase camera distance. */
+  distanceScale?: number;
   endCard: boolean;
   fps: number;
   terrain: TerrainGrid | null;
@@ -161,6 +168,7 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
     mode: opts.mode,
     exaggeration: opts.exaggeration,
     reducedMotion: opts.reducedMotion,
+    distanceScale: opts.distanceScale,
     endSeconds: opts.endCard ? 3 : 1,
     endCard: opts.endCard,
     elevationAt: opts.terrain ? sampler(opts.terrain, NaN) : null,
@@ -182,6 +190,9 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
       look,
       accent: opts.routeColor,
       stats: opts.stats,
+      liveStats: opts.liveStats,
+      endStats: opts.endStats,
+      highlights: opts.highlights,
       endCard: opts.endCard,
       attribution,
       exaggeration: opts.exaggeration,
