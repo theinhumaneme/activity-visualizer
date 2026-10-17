@@ -25,6 +25,8 @@ export function parseGpx(xml: string, fileName = "Activity"): Activity[] {
     ignoreAttributes: false,
     attributeNamePrefix: "@_",
     removeNSPrefix: true,
+    // Values stay strings; `num()` converts the numeric ones (faster than detecting numbers everywhere).
+    parseTagValue: false,
     isArray: (name) => ["trk", "trkseg", "trkpt", "rte", "rtept"].includes(name),
   });
   const doc = parser.parse(xml) as Node;

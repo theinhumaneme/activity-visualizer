@@ -50,23 +50,38 @@ function segDist(px: number, py: number, ax: number, ay: number, bx: number, by:
   return Math.hypot(px - ax - u * dx, py - ay - u * dy);
 }
 
-/** Directed Hausdorff: the farthest any point of A lies from the polyline B (meters, projected). */
-function directed(a: [number, number][], b: [number, number][]) {
+/**
+ * Directed Hausdorff: the farthest any point of A lies from the polyline B (meters, projected).
+ * Stops early, returning `limit`, once some point is at least `limit` away.
+ */
+function directed(a: [number, number][], b: [number, number][], limit = Infinity) {
   let worst = 0;
   for (const [px, py] of a) {
     let best = Infinity;
     for (let j = 1; j < b.length && best > worst; j++) best = Math.min(best, segDist(px, py, b[j - 1][0], b[j - 1][1], b[j][0], b[j][1]));
+    if (best >= limit) return limit;
     if (best > worst) worst = best;
   }
   return worst;
 }
 
+/** A route's points projected to meters around its own first point (what `hausdorff` compares in). */
+function projected(points: [number, number][]) {
+  const proj = projector(points[0][1], points[0][0]);
+  return { proj, pts: points.map(([lon, lat]) => proj(lat, lon)) };
+}
+
 /** Symmetric Hausdorff distance in meters between two polylines given as [lon, lat]. */
 export function hausdorff(a: [number, number][], b: [number, number][]): number {
-  const proj = projector(a[0][1], a[0][0]);
-  const pa = a.map(([lon, lat]) => proj(lat, lon));
+  const { proj, pts: pa } = projected(a);
   const pb = b.map(([lon, lat]) => proj(lat, lon));
   return Math.max(directed(pa, pb), directed(pb, pa));
+}
+
+/** `hausdorff(a, b) < limit`, reusing a's projection and stopping as soon as the answer is no. */
+function hausdorffBelow(a: ReturnType<typeof projected>, b: [number, number][], limit: number): boolean {
+  const pb = b.map(([lon, lat]) => a.proj(lat, lon));
+  return directed(a.pts, pb, limit) < limit && directed(pb, a.pts, limit) < limit;
 }
 
 /**
@@ -84,12 +99,12 @@ function sameDirection(a: RouteShape, b: RouteShape): boolean {
   return d[4] < Math.max(SAME_ROUTE.hausdorff, 0.08 * Math.max(a.length, b.length));
 }
 
-export function sameRoute(a: RouteShape, b: RouteShape): boolean {
+export function sameRoute(a: RouteShape, b: RouteShape, aProjected = projected(a.points)): boolean {
   if (a.kind !== b.kind) return false;
   if (Math.abs(a.length - b.length) > SAME_ROUTE.lengthRatio * Math.max(a.length, b.length)) return false;
   if (dist(a.start, b.start) > SAME_ROUTE.endpoint || dist(a.end, b.end) > SAME_ROUTE.endpoint) return false;
   if (!sameDirection(a, b)) return false;
-  return hausdorff(a.points, b.points) < SAME_ROUTE.hausdorff;
+  return hausdorffBelow(aProjected, b.points, SAME_ROUTE.hausdorff);
 }
 
 export interface RouteGroup {
@@ -128,13 +143,14 @@ export function groupLabel(records: LibraryRecord[], loop: boolean, distance: nu
  */
 export function groupRoutes(records: LibraryRecord[], unitLen = 1000, unit = "km"): RouteGroup[] {
   const sorted = [...records].sort((a, b) => a.startTime - b.startTime);
-  const groups: { anchor: RouteShape; members: LibraryRecord[] }[] = [];
+  // Each anchor is projected once, not once per comparison.
+  const groups: { anchor: RouteShape; projected: ReturnType<typeof projected>; members: LibraryRecord[] }[] = [];
   for (const r of sorted) {
     const shape = routeShape(r);
     if (!shape) continue;
-    const g = groups.find((x) => sameRoute(x.anchor, shape));
+    const g = groups.find((x) => sameRoute(x.anchor, shape, x.projected));
     if (g) g.members.push(r);
-    else groups.push({ anchor: shape, members: [r] });
+    else groups.push({ anchor: shape, projected: projected(shape.points), members: [r] });
   }
   return groups
     .filter((g) => g.members.length >= 2)
@@ -152,4 +168,10 @@ export function groupRoutes(records: LibraryRecord[], unitLen = 1000, unit = "km
       };
     })
     .sort((a, b) => b.members.length - a.members.length || a.id.localeCompare(b.id));
+}
+
+/** The same groups labeled for other units, without regrouping (labels are the only unit-dependent part). */
+export function relabelGroups(groups: RouteGroup[], records: LibraryRecord[], unitLen: number, unit: string): RouteGroup[] {
+  const byId = new Map(records.map((r) => [r.id, r]));
+  return groups.map((g) => ({ ...g, label: groupLabel(g.members.map((id) => byId.get(id)!).filter(Boolean), g.loop, g.distance, unitLen, unit) }));
 }

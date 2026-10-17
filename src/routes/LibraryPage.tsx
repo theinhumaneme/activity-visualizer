@@ -1,20 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { ActivityList } from "../components/library/ActivityList";
 import { AddFiles } from "../components/library/AddFiles";
 import { type SportFilter, capitalize, distanceText, shortDate, sportPlural, sportSingular } from "../components/library/format";
-import { Heatmap } from "../components/library/Heatmap";
 import { Progress } from "../components/library/Progress";
-import { Race } from "../components/library/Race";
 import { Recap } from "../components/library/Recap";
-import { Segmented } from "../components/ui";
+import { Loading, Segmented } from "../components/ui";
 import { unitLabel, unitLength } from "../lib/format/format";
 import { groupsWithin, inPeriod, periodOptions } from "../lib/library/aggregate";
 import { personalRecords, recordsByActivity } from "../lib/library/records";
-import { groupRoutes } from "../lib/library/similarity";
+import { groupRoutes, relabelGroups } from "../lib/library/similarity";
 import type { SportKind } from "../lib/parse/types";
 import { libraryPrivacyRadius, useLibrary } from "../state/library";
 import { useStore } from "../state/store";
+
+// The map tabs pull in MapLibre (~290 KB gzipped); load it only when one of them is opened.
+const Heatmap = lazy(() => import("../components/library/Heatmap").then((m) => ({ default: m.Heatmap })));
+const Race = lazy(() => import("../components/library/Race").then((m) => ({ default: m.Race })));
 
 type Tab = "recap" | "heatmap" | "race" | "progress" | "list";
 const TABS: { value: Tab; label: string }[] = [
@@ -87,7 +89,9 @@ export function LibraryPage() {
   const byId = useMemo(() => new Map(shown.map((e) => [e.id, e])), [shown]);
 
   // Route grouping (always within one sport) runs once over the selection; periods just filter the members.
-  const allGroups = useMemo(() => groupRoutes(ofKind, unitLength(units), unitLabel(units)), [ofKind, units]);
+  // Switching units only relabels the groups; the shape comparison doesn't run again.
+  const grouped = useMemo(() => groupRoutes(ofKind), [ofKind]);
+  const allGroups = useMemo(() => relabelGroups(grouped, ofKind, unitLength(units), unitLabel(units)), [grouped, ofKind, units]);
   const groups = useMemo(() => groupsWithin(allGroups, new Set(shown.map((e) => e.id))), [allGroups, shown]);
   const prsAllTime = useMemo(() => recordsByActivity(personalRecords(ofKind)), [ofKind]);
   const prsPeriod = useMemo(() => personalRecords(shown), [shown]);
@@ -229,8 +233,10 @@ export function LibraryPage() {
 
           <div className="mt-4">
             {tab === "recap" && <Recap records={shown} groups={groups} prs={prsPeriod} kind={kind} units={units} periodLabel={periodLabel} onOpen={openActivity} />}
-            {tab === "heatmap" && <Heatmap records={shown} radius={radius} units={units} />}
-            {tab === "race" && <Race key={`${kind}-${period}`} groups={groups} byId={byId} radius={radius} units={units} />}
+            <Suspense fallback={<Loading label="Loading the map…" />}>
+              {tab === "heatmap" && <Heatmap records={shown} radius={radius} units={units} />}
+              {tab === "race" && <Race key={`${kind}-${period}`} groups={groups} byId={byId} radius={radius} units={units} />}
+            </Suspense>
             {tab === "progress" && <Progress records={shown} kind={kind} units={units} />}
             {tab === "list" && <ActivityList records={shown} prsById={prsAllTime} kind={kind} units={units} opening={opening} onOpen={openActivity} />}
           </div>

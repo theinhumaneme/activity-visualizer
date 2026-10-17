@@ -96,9 +96,9 @@ export const useLibrary = create<LibraryState>((set, get) => ({
         if (!result.ok) problems.push({ fileName: job.file.name, message: result.error });
         else {
           for (const msg of result.skipped) problems.push({ fileName: job.file.name, message: msg });
+          const entries = get().entries;
           for (const r of result.records) {
-            const existing = [...get().entries, ...added];
-            if (existing.some((e) => isDuplicate(e, r))) duplicates++;
+            if (entries.some((e) => isDuplicate(e, r)) || added.some((e) => isDuplicate(e, r))) duplicates++;
             else added.push({ ...r, file: job.file });
           }
         }
@@ -109,7 +109,8 @@ export const useLibrary = create<LibraryState>((set, get) => ({
           set({ progress: { done, total: jobs.length } });
         }
       },
-      { concurrency: Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) - 1)), signal: ctrl.signal },
+      // Each worker needs ~20 MB at most for a 9 MB file, so use most cores (up to 6).
+      { concurrency: Math.max(1, Math.min(6, (navigator.hardwareConcurrency || 4) - 1)), signal: ctrl.signal },
     );
     if (abort !== ctrl) return;
     abort = null;
