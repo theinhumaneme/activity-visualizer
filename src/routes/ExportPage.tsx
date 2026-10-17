@@ -64,7 +64,7 @@ export function ExportPage() {
 
   useEffect(() => () => abort.current?.abort(), []);
   useEffect(() => () => void (result && URL.revokeObjectURL(result.url)), [result]);
-  useEffect(() => void loadHudFonts().then(() => setFontsReady(true)), []);
+  useEffect(() => void loadHudFonts(LOOKS[lookId]).then(() => setFontsReady(true)), [lookId]);
 
   const previewW = aspect === "16:9" ? 520 : aspect === "1:1" ? 380 : 290;
   const previewH = Math.round((previewW * size.height) / size.width);
@@ -343,7 +343,7 @@ export function ExportPage() {
                         ? `Preloading tile ${progress.frame} of ${progress.total} for the whole flight, so frames render without waiting. `
                         : "Loading the map… "}
                     {progress && progress.rateLimited > 0 ? "The tile server is busy, so tiles are being retried; this frame may take longer. " : ""}
-                    Keep this tab open; it pauses in the background.
+                    Keep this tab open. Once frames start, it keeps going in a background tab; phones pause it if you switch apps.
                   </p>
                 </div>
               )}

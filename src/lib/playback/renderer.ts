@@ -9,6 +9,8 @@ import type { Look } from "../map/style";
 import type { FrameState } from "./timeline";
 
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
+/** Layer types MapLibre drapes onto the terrain (drawn into tile textures). */
+const DRAPED = new Set(["background", "fill", "line", "raster", "hillshade", "color-relief"]);
 /** Comet tail behind the marker, seconds of activity time. */
 const TAIL_SECONDS = 8;
 /** The route is cut into at most this many pieces; each one switches on as the marker passes. */
@@ -42,29 +44,41 @@ const whenEdge = (on: number) => ["case", ["all", done, ["!", merged]], on, 0] a
  * Neither source is simplified, so tiny pieces aren't dropped when the camera pulls back.
  */
 export function addFlyoverLayers(map: MlMap, look: Look) {
+  // Route lines go right after the last ground layer (roads, water, hillshade…), so above every
+  // road but under the labels that follow: with terrain, each unbroken run of ground layers is
+  // drawn into its own set of tile textures, so lines added above the labels doubled the texture
+  // memory and drawing work per frame. (Not simply "before the first label": styles may put a
+  // label early, under the roads.) The km markers stay on top.
+  const layers = map.getStyle().layers;
+  let lastGround = -1;
+  layers.forEach((l, i) => {
+    if (DRAPED.has(l.type)) lastGround = i;
+  });
+  const below = layers[lastGround + 1]?.id;
+  const addLine = (layer: Parameters<MlMap["addLayer"]>[0]) => map.addLayer(layer, below);
   map.addSource("route", { type: "geojson", data: EMPTY, tolerance: 0 });
   map.addSource("route-runs", { type: "geojson", data: EMPTY, tolerance: 0 });
   map.addSource("route-km", { type: "geojson", data: EMPTY });
   const round = { "line-cap": "round", "line-join": "round" } as const;
   const glow = { "line-color": look.glow ?? (["get", "c"] as unknown as string), "line-width": width(3.2), "line-blur": 6 };
-  map.addLayer({ id: "route-glow", type: "line", source: "route-runs", layout: round, paint: { ...glow, "line-opacity": whenDone(0.32) } });
-  map.addLayer({ id: "route-glow-edge", type: "line", source: "route", layout: round, paint: { ...glow, "line-opacity": whenEdge(0.32) } });
+  addLine({ id: "route-glow", type: "line", source: "route-runs", layout: round, paint: { ...glow, "line-opacity": whenDone(0.32) } });
+  addLine({ id: "route-glow-edge", type: "line", source: "route", layout: round, paint: { ...glow, "line-opacity": whenEdge(0.32) } });
   // Opaque, so the caps where pieces meet can't double up.
-  map.addLayer({
+  addLine({
     id: "route-casing",
     type: "line",
     source: "route",
     layout: round,
     paint: { "line-color": look.casing, "line-opacity": whenDone(1), "line-width": width(1.45) },
   });
-  map.addLayer({
+  addLine({
     id: "route-line",
     type: "line",
     source: "route",
     layout: round,
     paint: { "line-color": ["get", "c"], "line-opacity": whenDone(1), "line-width": width(1) },
   });
-  map.addLayer({
+  addLine({
     id: "route-tail",
     type: "line",
     source: "route",
@@ -261,12 +275,23 @@ export class FlyoverRenderer {
     }
   }
 
+  private viewport: [number, number] | null = null;
+  /** Fixes the map's CSS size for `project` (exports), so it doesn't read layout every call. */
+  setViewport(w: number, h: number) {
+    this.viewport = [w, h];
+  }
+
   /** Screen position (CSS px) of a route point, for markers and callouts; null when off-screen. */
   project(at: LngLat): [number, number] | null {
     const p = this.map.project(at);
-    const c = this.map.getCanvas();
-    const w = c.clientWidth || c.width;
-    const h = c.clientHeight || c.height;
+    let w: number;
+    let h: number;
+    if (this.viewport) [w, h] = this.viewport;
+    else {
+      const c = this.map.getCanvas();
+      w = c.clientWidth || c.width;
+      h = c.clientHeight || c.height;
+    }
     if (!Number.isFinite(p.x) || p.x < -50 || p.y < -50 || p.x > w + 50 || p.y > h + 50) return null;
     return [p.x, p.y];
   }

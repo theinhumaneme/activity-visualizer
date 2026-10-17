@@ -70,7 +70,7 @@ interface TileStore {
 
 const CACHE_NAME = "export-tiles";
 /** In-memory fallback budget; past it, tiles are still fetched (warming the HTTP cache) but not kept. */
-const MEMORY_BUDGET = 160 * 1024 * 1024;
+const MEMORY_BUDGET = 64 * 1024 * 1024;
 
 let store: TileStore | null = null;
 

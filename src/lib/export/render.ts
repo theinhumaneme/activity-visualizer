@@ -1,5 +1,6 @@
 import { type ErrorEvent, Map as MlMap } from "maplibre-gl";
-import { BufferTarget, CanvasSource, Mp4OutputFormat, Output, type VideoCodec, WebMOutputFormat, getFirstEncodableVideoCodec } from "mediabunny";
+// The encoder library (~65 KB gzipped) is loaded when a video is rendered, not with the page.
+import type { VideoCodec } from "mediabunny";
 import type { Analysis } from "../analysis/types";
 import { type TerrainGrid, sampler } from "../geo/terrainGrid";
 import { drawHud, loadHudFonts } from "../hud/hud";
@@ -57,6 +58,8 @@ export function exportSize(aspect: Aspect, short: number) {
 }
 
 const PIXEL_RATIO = 2;
+/** The export page's progress text and preview update at most this often (ms). */
+const PROGRESS_MS = 250;
 /** Camera samples per second of video when working out which tiles to preload. */
 const PLAN_HZ = 5;
 
@@ -99,7 +102,9 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
   const host = document.createElement("div");
   host.style.cssText = `position:fixed;left:-${cssW + 100}px;top:0;width:${cssW}px;height:${cssH}px;pointer-events:none;`;
   document.body.appendChild(host);
-  const [style] = await Promise.all([flyoverStyle(opts.look, opts.exaggeration), loadHudFonts()]);
+  // Fonts are only needed for the first HUD draw: load them while the map loads.
+  const fonts = loadHudFonts(look);
+  const style = await flyoverStyle(opts.look, opts.exaggeration);
   const map = new MlMap({
     container: host,
     style,
@@ -108,16 +113,27 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
     fadeDuration: 0,
     pixelRatio: PIXEL_RATIO,
     maxPitch: 85,
-    canvasContextAttributes: { preserveDrawingBuffer: true, antialias: true },
+    // No MSAA: with terrain almost everything is drawn into (un-antialiased) tile textures first,
+    // so it only smoothed silhouettes, for ~4x the framebuffer memory. preserveDrawingBuffer stays:
+    // a frame is copied out after asynchronous waits.
+    canvasContextAttributes: { preserveDrawingBuffer: true, antialias: false },
     // Tiles retry rate limits and server errors instead of leaving holes in the frame.
     transformRequest: retryTiles,
     center: [a.samples[0].lon, a.samples[0].lat],
     zoom: 13,
   });
+  let removed = false;
   const cleanup = () => {
+    if (removed) return;
+    removed = true;
     map.remove();
     host.remove();
   };
+  // Phones drop the GL context under memory pressure; every frame after that would only time out.
+  let contextLost = false;
+  map.on("webglcontextlost", () => (contextLost = true));
+  // (MapLibre loads its style on an animation frame, so a tab that's hidden right now waits here
+  // until it's shown again; once loaded, frames render in a background tab too.)
   try {
     await new Promise<void>((resolve, reject) => {
       map.once("load", () => resolve());
@@ -135,6 +151,9 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
   redrawTexturesAtOnce(map);
   addFlyoverLayers(map, look);
   const renderer = new FlyoverRenderer(map, a, { mode: opts.colorMode, color: opts.routeColor, theme: look.ramp }, look);
+  // The map's size is fixed: project without reading layout from the DOM every frame.
+  renderer.setViewport(cssW, cssH);
+  await fonts;
   const timeline = buildTimeline(a, {
     followSeconds: opts.followSeconds,
     width: cssW,
@@ -154,11 +173,10 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
 
   const draw = async (T: number, poster = false) => {
     if (signal.aborted) throw new DOMException("Export canceled", "AbortError");
-    // Browsers stop rendering hidden tabs; wait rather than capture a half-drawn frame.
-    await whenVisible(signal);
+    if (contextLost) throw new Error("The browser ran out of graphics memory and stopped the map. Try 720p, or close other tabs and apps, and render again.");
     const state = timeline.frame(T);
     renderer.apply(state);
-    const complete = await settleFrame(map);
+    const complete = await settleFrame(map, signal);
     ctx.drawImage(map.getCanvas(), 0, 0, W, H);
     drawHud(ctx, W, H, a, state, {
       look,
@@ -184,7 +202,31 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
  * sources concerned and wait again. Returns false if the frame is still incomplete after that,
  * so the exporter can report it instead of shipping a hole silently.
  */
-async function settleFrame(map: MlMap): Promise<boolean> {
+async function settleFrame(map: MlMap, signal: AbortSignal): Promise<boolean> {
+  // Render right away, and again whenever tile data arrives, instead of waiting for the map's
+  // next animation frame: browsers throttle those (30 Hz in iOS Low Power Mode, as low as 1 Hz in
+  // windows that aren't in front), which made every frame that needed a tile wait a whole frame
+  // or more. Rendering also starts the tile requests for the new camera immediately.
+  // Timers are avoided too (a background window clamps them to ~1 s): it waits on tile events and
+  // yields with a message, falling back to a timer only when nothing arrives.
+  const failedNow = tileHealth.failed;
+  const deadline = performance.now() + 8000;
+  let spins = 0;
+  while (performance.now() < deadline) {
+    if (renderNow(map)) {
+      if (tileHealth.failed === failedNow) return true;
+      break;
+    }
+    // Tiles are in but something else needs another pass (label placement, textures): go again.
+    if (map.areTilesLoaded() && spins++ < 4) await yieldNow();
+    else {
+      spins = 0;
+      await dataOrTimeout(map, 250);
+    }
+  }
+  // Fallback: let the map run its own animation frames, which browsers stop in hidden tabs.
+  // (Everything above works in a background tab, so a hidden tab only waits here.)
+  await whenVisible(signal);
   for (let attempt = 0; attempt < 3; attempt++) {
     const failedBefore = tileHealth.failed;
     const idle = await settled(map, attempt === 0 ? 8000 : 15000);
@@ -192,6 +234,74 @@ async function settleFrame(map: MlMap): Promise<boolean> {
     reloadFailedTiles(map);
   }
   return false;
+}
+
+// One reused channel: a new MessageChannel per yield would leave thousands of open ports behind.
+let yieldChannel: MessageChannel | null = null;
+const yieldQueue: (() => void)[] = [];
+
+/** Lets queued tasks (tile messages from MapLibre's workers) run, without a timer. */
+function yieldNow(): Promise<void> {
+  if (!yieldChannel) {
+    yieldChannel = new MessageChannel();
+    yieldChannel.port1.onmessage = () => yieldQueue.shift()?.();
+  }
+  const channel = yieldChannel;
+  return new Promise((resolve) => {
+    yieldQueue.push(resolve);
+    channel.port2.postMessage(null);
+  });
+}
+
+/** Resolves when the map reports new data (a tile loaded or parsed), or after `ms` if none arrives. */
+function dataOrTimeout(map: MlMap, ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      map.off("data", onData);
+      // Let tiles that arrived together all land before rendering again.
+      void yieldNow().then(resolve);
+    };
+    const onData = () => finish();
+    const timer = setTimeout(finish, ms);
+    map.on("data", onData);
+  });
+}
+
+/** Renders the current camera synchronously; true when the map is complete (it went idle). */
+function renderNow(map: MlMap): boolean {
+  let idle = false;
+  const onIdle = () => (idle = true);
+  map.once("idle", onIdle);
+  map.redraw();
+  map.off("idle", onIdle);
+  return idle;
+}
+
+/** Keeps the screen on while rendering (a locked phone pauses the page); re-acquired when the page comes back. */
+function keepAwake(): () => void {
+  type Sentinel = { release(): Promise<void> };
+  const wl = (navigator as Navigator & { wakeLock?: { request(type: "screen"): Promise<Sentinel> } }).wakeLock;
+  if (!wl) return () => {};
+  let sentinel: Sentinel | null = null;
+  let done = false;
+  const acquire = () => {
+    if (done || document.hidden) return;
+    wl.request("screen").then(
+      (s) => (done ? void s.release() : (sentinel = s)),
+      () => {},
+    );
+  };
+  acquire();
+  document.addEventListener("visibilitychange", acquire);
+  return () => {
+    done = true;
+    document.removeEventListener("visibilitychange", acquire);
+    void sentinel?.release().catch(() => {});
+  };
 }
 
 /**
@@ -244,7 +354,14 @@ export async function renderVideo(
   hooks: { onProgress: (p: ExportProgress) => void; preview?: HTMLCanvasElement | null; signal: AbortSignal },
 ): Promise<ExportResult> {
   const started = performance.now();
-  const st = await stage(a, opts, hooks.signal);
+  const release = keepAwake();
+  let st: Stage;
+  try {
+    st = await stage(a, opts, hooks.signal);
+  } catch (err) {
+    release();
+    throw err;
+  }
   const previewCtx = hooks.preview?.getContext("2d") ?? null;
   try {
     const limitedAtStart = tileHealth.rateLimited;
@@ -262,12 +379,19 @@ export async function renderVideo(
     });
     const total = Math.ceil(st.timeline.duration * opts.fps);
     let incompleteFrames = 0;
+    let shown = 0;
     const drawFrame = async (i: number) => {
       if (!(await st.draw(i / opts.fps))) incompleteFrames++;
+      // Re-rendering the page and scaling a 1080p frame into the preview every frame competes
+      // with the map for the GPU; a few times a second is plenty to show progress.
+      const now = performance.now();
+      if (now - shown < PROGRESS_MS && i + 1 < total) return;
+      shown = now;
       if (previewCtx && hooks.preview) previewCtx.drawImage(st.composite, 0, 0, hooks.preview.width, hooks.preview.height);
-      hooks.onProgress({ stage: "frames", frame: i + 1, total, elapsedMs: performance.now() - started, rateLimited: tileHealth.rateLimited - limitedAtStart });
+      hooks.onProgress({ stage: "frames", frame: i + 1, total, elapsedMs: now - started, rateLimited: tileHealth.rateLimited - limitedAtStart });
     };
 
+    const { BufferTarget, CanvasSource, Mp4OutputFormat, Output, WebMOutputFormat, getFirstEncodableVideoCodec } = await import("mediabunny");
     const codec = typeof VideoEncoder !== "undefined" ? await getFirstEncodableVideoCodec(["avc", "vp9", "av1"], { width: st.W, height: st.H }) : null;
     if (codec) {
       const extension = codec === "avc" ? "mp4" : "webm";
@@ -284,6 +408,8 @@ export async function renderVideo(
           await source.add(i / opts.fps, 1 / opts.fps);
         }
         source.close();
+        // Free the map's GPU and tile memory before the file is assembled (which needs 2-3x its size).
+        st.cleanup();
         await output.finalize();
       } catch (err) {
         await output.cancel();
@@ -300,24 +426,45 @@ export async function renderVideo(
       };
     }
 
-    // Last resort: record the composite canvas in real time (variable frame rate). Frames that
-    // take longer than 1/fps to load are held, so playback may stutter where tiles were slow.
+    // Last resort (no WebCodecs): record the composite canvas. The recorder times frames by the
+    // wall clock, so it's paused while each frame renders and runs for exactly 1/fps per frame:
+    // slow frames no longer stretch or squash the video. Without requestFrame/pause (rare), frames
+    // are held while they render, so playback may stutter where tiles were slow.
     const mime = ["video/mp4;codecs=avc1", "video/webm;codecs=vp9", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m));
     if (!mime) throw new Error("This browser can't encode video. Try a recent Chrome, Edge or Safari.");
-    const stream = st.composite.captureStream(opts.fps);
+    const stream = st.composite.captureStream(0);
+    const track = stream.getVideoTracks()[0] as MediaStreamTrack & { requestFrame?: () => void };
     const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12_000_000 });
+    const paced = typeof track.requestFrame === "function" && typeof recorder.pause === "function";
     const chunks: Blob[] = [];
     recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     const stopped = new Promise<void>((resolve) => (recorder.onstop = () => resolve()));
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    // Each frame must stay on the recorder for exactly 1/fps of wall time. Timers can't be trusted
+    // for that (a background window clamps them to a second or more), so wait by yielding instead.
+    const hold = async (ms: number) => {
+      const until = performance.now() + ms;
+      while (performance.now() < until) await yieldNow();
+    };
     await drawFrame(0);
     recorder.start(1000);
+    track.requestFrame?.();
     const t0 = performance.now();
     try {
       for (let i = 1; i < total; i++) {
-        await drawFrame(i);
-        const wait = t0 + (i * 1000) / opts.fps - performance.now();
-        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+        if (paced) {
+          await hold(1000 / opts.fps);
+          recorder.pause();
+          await drawFrame(i);
+          recorder.resume();
+          track.requestFrame!();
+        } else {
+          await drawFrame(i);
+          const wait = t0 + (i * 1000) / opts.fps - performance.now();
+          if (wait > 0) await sleep(wait);
+        }
       }
+      await (paced ? hold : sleep)(1000 / opts.fps);
     } finally {
       recorder.stop();
       await stopped;
@@ -326,6 +473,7 @@ export async function renderVideo(
     return { blob: new Blob(chunks, { type: mime.split(";")[0] }), extension, width: st.W, height: st.H, duration: total / opts.fps, method: "mediarecorder", incompleteFrames };
   } finally {
     st.cleanup();
+    release();
     void releaseTiles();
   }
 }
