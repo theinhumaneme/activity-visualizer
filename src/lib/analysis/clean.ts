@@ -41,6 +41,9 @@ export function removeTeleports(samples: Sample[], kind: SportKind): number {
   const bad = new Uint8Array(n);
   const W = 15;
   for (let i = 1; i < n - 1; i++) {
+    // The limit below is never under half the ceiling, so slower legs can't be a spike: skip the
+    // rolling median (a sort per point) for the vast majority of points.
+    if (v[i] <= ceiling * 0.5 || v[i + 1] <= ceiling * 0.5) continue;
     const win: number[] = [];
     for (let k = Math.max(1, i - W); k <= Math.min(n - 1, i + W); k++) win.push(v[k]);
     const med = median(win);

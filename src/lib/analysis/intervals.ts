@@ -250,7 +250,8 @@ function finish(s: Series, blocks: Block[], source: Intervals["source"]): Interv
 
 /** Otsu's threshold for a 1-D sample: the split that maximizes between-class variance. */
 export function otsu(values: number[]): number | null {
-  const v = values.filter(Number.isFinite).sort((a, b) => a - b);
+  // A typed array sorts numerically without a comparator call per comparison.
+  const v = Float64Array.from(values.filter(Number.isFinite)).sort();
   if (v.length < 4) return null;
   const lo = v[Math.floor(v.length * 0.02)];
   const hi = v[Math.floor(v.length * 0.98)];

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { analyze, defaultSettings } from "../lib/analysis/analyze";
+import { headlineFor } from "../lib/analysis/report";
 import { sampleTerrain } from "../lib/analysis/dem";
 import type { Analysis, Settings, Units } from "../lib/analysis/types";
 import { defaultUnits } from "../lib/format/format";
@@ -239,6 +240,14 @@ export const useStore = create<State>((set, get) => {
         } catch {
           // Not critical.
         }
+      }
+      // The name only feeds the headline; renaming (one call per keystroke) skips the re-analysis.
+      const analysis = get().analysis;
+      if (analysis && Object.keys(patch).every((k) => k === "name")) {
+        const renamed = { ...analysis, settings: next };
+        renamed.headline = headlineFor(renamed);
+        set({ settings: next, analysis: renamed });
+        return;
       }
       set({ settings: next, analysis: analyze(activity, next, dem), hoverIndex: null, highlight: null });
     },

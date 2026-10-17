@@ -346,9 +346,15 @@ export function buildInsights(a: Analysis): { insights: Insight[]; headline: str
   }
 
   out.sort((x, y) => y.weight - x.weight);
+  return { insights: out, headline: headlineFor(a) };
+}
+
+/** One-line summary; the only part of the analysis that depends on the activity's name. */
+export function headlineFor(a: Analysis): string {
+  const { summary: s, settings, activity } = a;
+  const u = settings.units;
   const hrPart = s.avgHr ? `, average heart rate ${Math.round(s.avgHr)} bpm` : "";
-  const headline = `${settings.name} on ${formatDate(activity.startTime, activity.utcOffsetMin)}: ${formatDistance(s.distance, u)} in ${formatDuration(s.elapsed)} (${formatDuration(s.moving)} moving) at ${formatMotion(s.avgSpeed, kind, u)}${hrPart}.`;
-  return { insights: out, headline };
+  return `${settings.name} on ${formatDate(activity.startTime, activity.utcOffsetMin)}: ${formatDistance(s.distance, u)} in ${formatDuration(s.elapsed)} (${formatDuration(s.moving)} moving) at ${formatMotion(s.avgSpeed, activity.kind, u)}${hrPart}.`;
 }
 
 /** Converts a per-km quantity to per-unit. */

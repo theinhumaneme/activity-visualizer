@@ -14,6 +14,47 @@ export function lowerIndex(xs: ArrayLike<number>, x: number): number {
   return lo;
 }
 
+/**
+ * `interpAt(xs, ys, x)` for queries that mostly come in increasing order: a cursor walks forward
+ * instead of binary-searching each time (same results; a smaller x restarts the walk).
+ */
+export function interpCursor(xs: ArrayLike<number>, ys: ArrayLike<number>): (x: number) => number {
+  const n = xs.length;
+  let i = 0;
+  let last = -Infinity;
+  return (x) => {
+    let k: number;
+    if (x <= xs[0]) k = 0;
+    else if (x >= xs[n - 1]) k = n - 1;
+    else {
+      if (x < last) i = 0;
+      last = x;
+      while (xs[i + 1] <= x) i++;
+      k = i;
+    }
+    if (k >= n - 1) return ys[n - 1];
+    const span = xs[k + 1] - xs[k];
+    const f = span > 0 ? Math.min(1, Math.max(0, (x - xs[k]) / span)) : 0;
+    return ys[k] + f * (ys[k + 1] - ys[k]);
+  };
+}
+
+/** `indexAtDist(dist, d)` for queries that mostly come in increasing order (same results). */
+export function indexAtDistCursor(dist: ArrayLike<number>): (d: number) => number {
+  const n = dist.length;
+  let lo = 0;
+  let last = -Infinity;
+  return (d) => {
+    if (d <= dist[0]) return 0;
+    if (d >= dist[n - 1]) return n - 1;
+    if (d < last) lo = 0;
+    last = d;
+    // Invariant as in indexAtDist: dist[lo] < d <= dist[lo + 1].
+    while (dist[lo + 1] < d) lo++;
+    return lo + (d - dist[lo]) / (dist[lo + 1] - dist[lo]);
+  };
+}
+
 /** Linear interpolation of ys at x, where xs is strictly increasing. */
 export function interpAt(xs: ArrayLike<number>, ys: ArrayLike<number>, x: number): number {
   const i = lowerIndex(xs, x);

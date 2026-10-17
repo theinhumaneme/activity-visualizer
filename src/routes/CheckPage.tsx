@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Badge, Card, Chevron, GroupHeading, Help, NextStep, Page, Segmented, Spinner, Tag } from "../components/ui";
 import type { QualityItem, QualityLevel } from "../lib/analysis/types";
 import { formatDateTime, formatDistance, formatDuration, formatUtcOffset } from "../lib/format/format";
@@ -274,21 +274,7 @@ export function CheckPage() {
                         ["Trim end", "trimEnd"],
                       ] as const
                     ).map(([label, key]) => (
-                      <div key={key}>
-                        <div className="mb-1 flex items-baseline justify-between text-sm">
-                          <span className="font-medium text-ink-2">{label}</span>
-                          <span className="font-semibold tabular text-ink">{formatDuration(settings[key])}</span>
-                        </div>
-                        <input
-                          type="range"
-                          className="w-full"
-                          aria-label={label}
-                          min={0}
-                          max={trimMax}
-                          value={settings[key]}
-                          onChange={(e) => updateSettings({ [key]: Number(e.target.value) })}
-                        />
-                      </div>
+                      <TrimSlider key={key} label={label} max={trimMax} value={settings[key]} onCommit={(v) => updateSettings({ [key]: v })} />
                     ))}
                   </div>
                 </section>
@@ -319,5 +305,55 @@ export function CheckPage() {
       </div>
       <NextStep to="/overview" label="See overview" back={{ to: "/", label: "Different file" }} />
     </Page>
+  );
+}
+
+/**
+ * A trim slider whose label follows the thumb at once, while the full re-analysis it triggers
+ * runs at most ~8 times a second (and once more on release), so dragging stays smooth on long files.
+ */
+function TrimSlider({ label, value, max, onCommit }: { label: string; value: number; max: number; onCommit: (v: number) => void }) {
+  const [draft, setDraft] = useState(value);
+  const pending = useRef<number | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const commit = useRef(onCommit);
+  commit.current = onCommit;
+  const flush = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    if (pending.current === null) return;
+    const v = pending.current;
+    pending.current = null;
+    commit.current(v);
+  };
+  // Follow outside changes (another activity, a reset) unless a drag is in progress.
+  useEffect(() => {
+    if (pending.current === null) setDraft(value);
+  }, [value]);
+  useEffect(() => flush, []);
+  const change = (v: number) => {
+    setDraft(v);
+    pending.current = v;
+    timer.current ??= setTimeout(flush, 120);
+  };
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between text-sm">
+        <span className="font-medium text-ink-2">{label}</span>
+        <span className="font-semibold tabular text-ink">{formatDuration(draft)}</span>
+      </div>
+      <input
+        type="range"
+        className="w-full"
+        aria-label={label}
+        min={0}
+        max={max}
+        value={draft}
+        onChange={(e) => change(Number(e.target.value))}
+        onPointerUp={flush}
+        onKeyUp={flush}
+        onBlur={flush}
+      />
+    </div>
   );
 }

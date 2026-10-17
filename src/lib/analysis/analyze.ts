@@ -8,7 +8,7 @@ import { detectIntervals } from "./intervals";
 import { findMoments } from "./moments";
 import { computePrivacy } from "./privacy";
 import { buildInsights, buildQuality } from "./report";
-import { atIndex, indexAtDist, interpAt } from "./series";
+import { atIndex, indexAtDist, indexAtDistCursor, interpCursor } from "./series";
 import type { Analysis, BestEffort, Settings, Slowdown, Split, Stop, Summary, Units, Zone } from "./types";
 
 export const ZONE_NAMES = ["Recovery", "Endurance", "Tempo", "Threshold", "Maximum"];
@@ -78,13 +78,16 @@ export function analyze(activity: Activity, settings: Settings, demAll: Float64A
   const elapsed = t[n - 1];
   const distance = dist[n - 1];
 
-  const distAt = (x: number) => interpAt(t, dist, x);
-  const windowSpeed = (half: number) =>
-    Float64Array.from(t, (ti) => {
+  // Both window edges only move forward, so each gets its own cursor instead of a binary search.
+  const windowSpeed = (half: number) => {
+    const distLo = interpCursor(t, dist);
+    const distHi = interpCursor(t, dist);
+    return Float64Array.from(t, (ti) => {
       const lo = Math.max(0, ti - half);
       const hi = Math.min(elapsed, ti + half);
-      return hi > lo ? (distAt(hi) - distAt(lo)) / (hi - lo) : 0;
+      return hi > lo ? (distHi(hi) - distLo(lo)) / (hi - lo) : 0;
     });
+  };
   const speed = windowSpeed(10);
   const speedBest = windowSpeed(15);
   const speedMove = windowSpeed(5);
@@ -120,11 +123,12 @@ export function analyze(activity: Activity, settings: Settings, demAll: Float64A
   let gap: Float64Array | null = null;
   if (elev) {
     // Grade over an 80 m window of smoothed elevation, clamped to ±40%.
-    const elevAtDist = (d: number) => atIndex(elev, indexAtDist(dist, d));
+    const fromA = indexAtDistCursor(dist);
+    const fromB = indexAtDistCursor(dist);
     grade = Float64Array.from(dist, (d) => {
       const a = Math.max(0, d - 40);
       const b = Math.min(distance, d + 40);
-      const g = b - a > 20 ? (elevAtDist(b) - elevAtDist(a)) / (b - a) : 0;
+      const g = b - a > 20 ? (atIndex(elev, fromB(b)) - atIndex(elev, fromA(a))) / (b - a) : 0;
       return Math.max(-0.4, Math.min(0.4, g));
     });
     if (profile.gap) gap = Float64Array.from(speed, (v, i) => (v * minetti(grade![i])) / minetti(0));
@@ -410,12 +414,13 @@ function computeBestEfforts(distances: number[], t: Float64Array, dist: Float64A
     let best = Infinity;
     let si = 0;
     let ei = 0;
+    const endAt = indexAtDistCursor(dist);
     for (let i = 0; i < dist.length; i++) {
       // Skip repeated points while stationary; the last one of each run is the best start.
       if (i + 1 < dist.length && dist[i + 1] === dist[i]) continue;
       const target = dist[i] + D;
       if (target > total) break;
-      const f = indexAtDist(dist, target);
+      const f = endAt(target);
       const dur = atIndex(t, f) - t[i];
       if (dur < best) {
         best = dur;
@@ -454,10 +459,11 @@ function computeStops(samples: Sample[], t: Float64Array, moving: Uint8Array): S
  */
 function computeSlowdowns(t: Float64Array, dist: Float64Array, speed: Float64Array, moving: Uint8Array): Slowdown[] {
   const n = t.length;
-  const v: number[] = [];
-  for (let i = 0; i < n - 1; i++) if (moving[i]) v.push(speed[i]);
-  if (v.length < 60) return [];
-  v.sort((x, y) => x - y);
+  const moved: number[] = [];
+  for (let i = 0; i < n - 1; i++) if (moving[i]) moved.push(speed[i]);
+  if (moved.length < 60) return [];
+  // A typed array sorts numerically without a comparator call per comparison.
+  const v = Float64Array.from(moved).sort();
   const limit = v[v.length >> 1] * 0.7;
   const out: Slowdown[] = [];
   let start = -1;
