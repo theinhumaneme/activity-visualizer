@@ -2,7 +2,7 @@
 
 Upload any `.gpx` or `.tcx` activity (runs, rides, hikes, walks, skiing, paddling, swims, or anything else a GPS track can hold) from Google Health, Fitbit, Garmin, Strava and others. Check the data, dig into the analysis, watch a cinematic 3D flyover over high-resolution terrain with your photos along the way, and export a video (up to 4K) or poster. Drop several files to build a library that's remembered between visits. Files are parsed and analyzed in the browser and never uploaded.
 
-**Steps:** Upload → Check (data audit and settings) → Overview → Analysis → Flyover → Export. Several files open the **Library** (heatmap, race your past selves, progress, recap). The site installs as an app.
+**Steps:** Upload → Check (data audit and settings) → Overview → Analysis → Flyover → Export. Opening a file (or the sample) goes straight to the flyover, which starts playing once the first view loads; Check is optional and one click away. It opens first only when it needs an answer: a file with several activities, or a privacy zone that hides the whole route. Several files open the **Library** (heatmap, race your past selves, progress, recap). The site installs as an app.
 
 ## What it does
 

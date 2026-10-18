@@ -2,6 +2,7 @@ import { type ReactNode, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { FEATURE_ART } from "../components/FeatureArt";
 import { SamplePreview } from "../components/SamplePreview";
+import { useOpenActivity } from "../components/steps";
 import { ErrorNote, Spinner, stagger } from "../components/ui";
 import { droppedFiles } from "../lib/library/files";
 import { useLibrary } from "../state/library";
@@ -161,6 +162,7 @@ export function UploadPage() {
   const loading = useStore((s) => s.loading);
   const error = useStore((s) => s.error);
   const navigate = useNavigate();
+  const openActivity = useOpenActivity();
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [pending, setPending] = useState<"file" | "sample">("file");
@@ -168,7 +170,7 @@ export function UploadPage() {
   async function handle(file: File | undefined) {
     if (!file) return;
     setPending("file");
-    if (await loadFile(file)) navigate("/check");
+    if (await loadFile(file)) openActivity();
   }
 
   // One file: the single-activity flow. Two or more (or a folder): the library.
@@ -180,7 +182,7 @@ export function UploadPage() {
 
   async function sample() {
     setPending("sample");
-    if (await loadSample()) navigate("/check");
+    if (await loadSample()) openActivity();
   }
 
   const state = loading ? "loading" : dragging ? "dragging" : "idle";
@@ -277,7 +279,7 @@ export function UploadPage() {
                     onClick={sample}
                     className="btn btn-quiet btn-sm text-ink-2 underline decoration-line underline-offset-4 hover:decoration-ink"
                   >
-                    or try a sample run
+                    or watch a sample flyover
                   </button>
                 </div>
               )}

@@ -1,7 +1,9 @@
 import { Map as MlMap } from "maplibre-gl";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
 import { ColorModePicker } from "../components/ColorModePicker";
 import { PhotoPicker } from "../components/PhotoPicker";
+import type { FlyoverArrival } from "../components/steps";
 import { ControlRow, Failure, Loading, NextStep, Page, Segmented } from "../components/ui";
 import { formatDuration } from "../lib/format/format";
 import { sampler } from "../lib/geo/terrainGrid";
@@ -87,6 +89,14 @@ export function FlyoverPage() {
   const updateSettings = useStore((s) => s.updateSettings);
   const reduced = useReducedMotion();
   const look = LOOKS[lookId];
+  const location = useLocation();
+  const navigate = useNavigate();
+  /** Set on arrival from a fresh upload; not under reduced motion, where nothing should move unasked. */
+  const autoplay = useRef(!!(location.state as FlyoverArrival | null)?.autoplay && !reduced);
+  // Consume the request, so a refresh or coming back to this step doesn't start it again.
+  useEffect(() => {
+    if ((location.state as FlyoverArrival | null)?.autoplay) navigate(location.pathname, { replace: true, state: null });
+  }, [location, navigate]);
 
   const container = useRef<HTMLDivElement>(null);
   const hud = useRef<HTMLCanvasElement>(null);
@@ -413,8 +423,16 @@ export function FlyoverPage() {
     if (!playing && tRef.current >= tl.duration - 0.01) show(0);
     // Pausing: bring the (throttled) time label and scrubber to the exact frame shown.
     if (playing) show(tRef.current);
+    autoplay.current = false;
     setPlaying((p) => !p);
   }, [playing, show]);
+
+  // Opened straight from Upload or the library: start the flight once the first view has loaded.
+  useEffect(() => {
+    if (!autoplay.current || !ready || loadingTiles || a.privacy.empty || !timelineRef.current) return;
+    autoplay.current = false;
+    setPlaying(true);
+  }, [ready, loadingTiles, a.privacy.empty]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -449,6 +467,7 @@ export function FlyoverPage() {
         </>
       }
       wide
+      actions={<DataCheckLink warnings={a.quality.filter((q) => q.level === "warn").length} />}
     >
       <div className="overflow-hidden rounded-card border border-grid bg-surface shadow-[var(--shadow-raised)]">
         <div data-map={look.hud === "light" ? "light" : "dark"} className="relative bg-[#101214] text-white">
@@ -708,3 +727,14 @@ export function FlyoverPage() {
   );
 }
 
+
+/** Check is optional now that uploads land here: keep the audit, trim and privacy zone one click away. */
+function DataCheckLink({ warnings }: { warnings: number }) {
+  return (
+    <Link to="/check" className="btn btn-secondary btn-sm gap-2">
+      <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${warnings ? "bg-warning" : "bg-good"}`} />
+      {warnings ? `Check data · ${warnings} warning${warnings === 1 ? "" : "s"}` : "Data checked"}
+      <span className="text-ink-2">· trim, privacy</span>
+    </Link>
+  );
+}

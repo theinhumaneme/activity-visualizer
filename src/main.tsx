@@ -39,8 +39,8 @@ const LibraryPage = lazy(() => pages["/library"]().then((m) => ({ default: m.Lib
 const here = pages[location.pathname as keyof typeof pages];
 if (here) void here().catch(() => {});
 
-/** The step after each page: its code (and MapLibre, from Check on) downloads while you read. */
-const NEXT: Record<string, keyof typeof pages> = { "/check": "/overview", "/overview": "/analysis", "/analysis": "/flyover", "/flyover": "/export" };
+/** The step after each page: its code (and MapLibre) downloads while you read. Opening an activity lands on the flyover. */
+const NEXT: Record<string, keyof typeof pages> = { "/": "/flyover", "/library": "/flyover", "/check": "/overview", "/overview": "/analysis", "/analysis": "/flyover", "/flyover": "/export" };
 
 function PrefetchNext() {
   const { pathname } = useLocation();

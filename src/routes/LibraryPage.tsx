@@ -1,10 +1,10 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
 import { ActivityList } from "../components/library/ActivityList";
 import { AddFiles } from "../components/library/AddFiles";
 import { type SportFilter, capitalize, distanceText, shortDate, sportPlural, sportSingular } from "../components/library/format";
 import { Progress } from "../components/library/Progress";
 import { Recap } from "../components/library/Recap";
+import { useOpenActivity } from "../components/steps";
 import { Loading, Segmented } from "../components/ui";
 import { unitLabel, unitLength } from "../lib/format/format";
 import { groupsWithin, inPeriod, periodOptions } from "../lib/library/aggregate";
@@ -54,7 +54,6 @@ export function LibraryPage() {
   const open = useLibrary((s) => s.open);
   const mainUnits = useStore((s) => s.settings?.units);
   const mainError = useStore((s) => s.error);
-  const navigate = useNavigate();
 
   // Follow the header's km/mi toggle when a single activity is loaded too.
   useEffect(() => {
@@ -100,12 +99,13 @@ export function LibraryPage() {
 
   const [opening, setOpening] = useState<string | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
+  const openLanding = useOpenActivity();
   async function openActivity(id: string) {
     setOpening(id);
     setOpenError(null);
     const ok = await open(id);
     setOpening(null);
-    if (ok) navigate("/check");
+    if (ok) openLanding();
     else setOpenError(useStore.getState().error ?? mainError ?? "Couldn't open that file.");
   }
 

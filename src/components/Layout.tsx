@@ -4,7 +4,7 @@ import { install, useIncoming, useInstall } from "../lib/pwa";
 import { useLibrary } from "../state/library";
 import { useStore } from "../state/store";
 import { type ThemePref, useTheme } from "../state/theme";
-import { STEPS } from "./steps";
+import { STEPS, useOpenActivity } from "./steps";
 import { Check, Chevron, PageSkeleton, Segmented } from "./ui";
 
 const REPO = "https://github.com/theinhumaneme/activity-visualizer";
@@ -17,19 +17,20 @@ function FooterLink({ href, children }: { href: string; children: ReactNode }) {
   );
 }
 
-/** Activity files opened with or shared to the installed app: one goes to Check, several to the library. */
+/** Activity files opened with or shared to the installed app: one goes to the flyover, several to the library. */
 function IncomingFiles() {
   const files = useIncoming((s) => s.files);
   const navigate = useNavigate();
+  const openActivity = useOpenActivity();
   useEffect(() => {
     if (!files?.length) return;
     useIncoming.setState({ files: null });
-    if (files.length === 1) void useStore.getState().loadFile(files[0]).then((ok) => ok && navigate("/check"));
+    if (files.length === 1) void useStore.getState().loadFile(files[0]).then((ok) => ok && openActivity());
     else {
       void useLibrary.getState().addFiles(files);
       navigate("/library");
     }
-  }, [files, navigate]);
+  }, [files, navigate, openActivity]);
   return null;
 }
 
@@ -190,6 +191,7 @@ function StepNav({ states }: { states: StepState[] }) {
                 <NavLink
                   to={step.path}
                   end
+                  title={"optional" in step ? "Optional: data audit, trim and privacy zone" : undefined}
                   aria-current={state === "current" ? "step" : undefined}
                   className={`${cls} ${state === "current" ? "bg-surface font-semibold text-ink shadow-[var(--shadow-raised)] ring-1 ring-grid" : "font-medium text-ink-2 hover:bg-surface-2 hover:text-ink"}`}
                 >
@@ -290,6 +292,7 @@ function CompactSteps({ states }: { states: StepState[] }) {
                       {step.label}
                       {state === "done" && <span className="ml-auto text-label text-good">Done</span>}
                       {state === "current" && <span className="ml-auto text-label text-accent-ink">You're here</span>}
+                      {state === "available" && "optional" in step && <span className="ml-auto text-label text-muted">Optional</span>}
                     </NavLink>
                   )}
                 </li>
