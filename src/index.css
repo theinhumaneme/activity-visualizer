@@ -665,12 +665,23 @@ html {
 .maplibregl-ctrl-attrib {
   font-size: 11px;
 }
-[data-map="dark"] .maplibregl-ctrl-attrib {
-  background: rgba(16, 18, 20, 0.7) !important;
-  color: #bec5cf;
+/* !important: MapLibre's stylesheet loads after ours (with the map code) and sets the compact
+   credits to black text, which was unreadable over the dark background below. */
+[data-map="dark"] .maplibregl-ctrl-attrib,
+[data-map="dark"] .maplibregl-ctrl-attrib.maplibregl-compact {
+  background: rgba(16, 18, 20, 0.72) !important;
+  color: #d3d8df !important;
 }
 [data-map="dark"] .maplibregl-ctrl-attrib a {
-  color: #bec5cf;
+  color: #eef1f4 !important;
+}
+[data-map="light"] .maplibregl-ctrl-attrib,
+[data-map="light"] .maplibregl-ctrl-attrib.maplibregl-compact {
+  background: rgba(255, 255, 255, 0.82) !important;
+  color: #3d3b36 !important;
+}
+[data-map="light"] .maplibregl-ctrl-attrib a {
+  color: #1d1c19 !important;
 }
 [data-map="dark"] .maplibregl-ctrl-attrib-button {
   filter: invert(1);
