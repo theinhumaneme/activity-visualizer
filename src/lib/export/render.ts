@@ -7,6 +7,9 @@ import { drawHud, loadHudFonts } from "../hud/hud";
 import type { EndStat, LiveStat } from "../hud/stats";
 import { type ColorMode } from "../map/route";
 import { DETAIL, type DetailLevel, applyTerrainQuality } from "../map/detail";
+import { addBuildingLayer, addLandmarkLayers } from "../map/landmarks";
+import type { Weather } from "../weather";
+import { activitySun, applySunLighting } from "../map/sun";
 import { LOOKS, type LookId, flyoverStyle } from "../map/style";
 import { planTiles, preloadTiles, releaseTiles, reloadFailedTiles, retryTiles, tileHealth } from "../map/tileFetch";
 import { FlyoverRenderer, addFlyoverLayers, settled } from "../playback/renderer";
@@ -30,6 +33,14 @@ export interface ExportOptions {
   liveStats?: readonly LiveStat[];
   endStats?: readonly EndStat[];
   highlights?: boolean;
+  /** Peak and landmark names on the map (default on). */
+  landmarks?: boolean;
+  /** 3D buildings (default on). */
+  buildings?: boolean;
+  /** Weather during the activity (when the user turned it on), for the weather stats. */
+  weather?: Weather | null;
+  /** Light terrain and buildings from the sun's real position (default on). */
+  sunLighting?: boolean;
   /** Multiplier on the chase camera distance. */
   distanceScale?: number;
   /** Map detail level (sharper terrain textures and imagery at High). */
@@ -164,6 +175,10 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
   // Exports never go below MapLibre's default texture resolution (Lite only lightens on-page maps).
   applyTerrainQuality(map, Math.max(2, DETAIL[detail].terrainQuality));
   addFlyoverLayers(map, look);
+  addLandmarkLayers(map, look, a.settings.units, opts.landmarks !== false);
+  addBuildingLayer(map, look, opts.buildings !== false);
+  const sun = opts.sunLighting === false ? null : activitySun(a.samples, !a.activity.routeOnly);
+  if (sun) applySunLighting(map, sun);
   const renderer = new FlyoverRenderer(map, a, { mode: opts.colorMode, color: opts.routeColor, theme: look.ramp }, look);
   // The map's size is fixed: project without reading layout from the DOM every frame.
   renderer.setViewport(cssW, cssH);
@@ -200,6 +215,7 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
       liveStats: opts.liveStats,
       endStats: opts.endStats,
       highlights: opts.highlights,
+      weather: opts.weather,
       endCard: opts.endCard,
       attribution,
       exaggeration: opts.exaggeration,

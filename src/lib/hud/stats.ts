@@ -3,9 +3,10 @@
 
 import type { Analysis } from "../analysis/types";
 import { motionLabel, usesPace } from "../format/format";
+import type { Weather } from "../weather";
 
-export type LiveStat = "time" | "moving" | "distance" | "motion" | "hr" | "elev" | "grade" | "cadence" | "power";
-export type EndStat = "distance" | "total" | "moving" | "stopped" | "avg" | "best" | "gain" | "loss" | "high" | "avgHr" | "maxHr" | "cadence" | "power" | "calories";
+export type LiveStat = "time" | "moving" | "distance" | "motion" | "hr" | "elev" | "grade" | "cadence" | "power" | "temp";
+export type EndStat = "distance" | "total" | "moving" | "stopped" | "avg" | "best" | "gain" | "loss" | "high" | "avgHr" | "maxHr" | "cadence" | "power" | "calories" | "weather";
 
 export const DEFAULT_LIVE: LiveStat[] = ["time", "distance", "motion", "hr", "elev", "grade"];
 export const DEFAULT_END: EndStat[] = ["distance", "total", "avg", "gain", "avgHr"];
@@ -17,7 +18,9 @@ const timed = (a: Analysis) => !a.activity.routeOnly;
 const pace = (a: Analysis) => usesPace(a.activity.kind);
 const hasPower = (a: Analysis) => a.summary.avgPower !== undefined;
 
-const LIVE: { key: LiveStat; label: (a: Analysis) => string; has: (a: Analysis) => boolean }[] = [
+type Has = (a: Analysis, w: Weather | null | undefined) => boolean;
+
+const LIVE: { key: LiveStat; label: (a: Analysis) => string; has: Has }[] = [
   { key: "time", label: () => "Total time", has: timed },
   { key: "moving", label: () => "Moving time", has: timed },
   { key: "distance", label: () => "Distance", has: () => true },
@@ -27,9 +30,10 @@ const LIVE: { key: LiveStat; label: (a: Analysis) => string; has: (a: Analysis) 
   { key: "grade", label: () => "Grade", has: (a) => !!a.grade },
   { key: "cadence", label: () => "Cadence", has: (a) => !!a.cadence },
   { key: "power", label: () => "Power", has: hasPower },
+  { key: "temp", label: () => "Temperature", has: (a, w) => timed(a) && !!w },
 ];
 
-const END: { key: EndStat; label: (a: Analysis) => string; has: (a: Analysis) => boolean }[] = [
+const END: { key: EndStat; label: (a: Analysis) => string; has: Has }[] = [
   { key: "distance", label: () => "Distance", has: () => true },
   { key: "total", label: () => "Total time", has: timed },
   { key: "moving", label: () => "Moving time", has: timed },
@@ -44,12 +48,13 @@ const END: { key: EndStat; label: (a: Analysis) => string; has: (a: Analysis) =>
   { key: "cadence", label: () => "Avg cadence", has: (a) => a.summary.avgCadence !== undefined },
   { key: "power", label: () => "Avg power", has: hasPower },
   { key: "calories", label: () => "Calories", has: (a) => a.summary.calories !== undefined },
+  { key: "weather", label: () => "Weather", has: (a, w) => timed(a) && !!w },
 ];
 
 /** The live stats this activity can show, as picker options (catalog order). */
-export const liveOptions = (a: Analysis) => LIVE.filter((s) => s.has(a)).map((s) => ({ value: s.key, label: s.label(a) }));
-export const endOptions = (a: Analysis) => END.filter((s) => s.has(a)).map((s) => ({ value: s.key, label: s.label(a) }));
+export const liveOptions = (a: Analysis, w?: Weather | null) => LIVE.filter((s) => s.has(a, w)).map((s) => ({ value: s.key, label: s.label(a) }));
+export const endOptions = (a: Analysis, w?: Weather | null) => END.filter((s) => s.has(a, w)).map((s) => ({ value: s.key, label: s.label(a) }));
 
 /** The chosen stats this activity has, in catalog order (so panels read the same way every time). */
-export const pickLive = (a: Analysis, chosen: readonly LiveStat[]) => LIVE.filter((s) => chosen.includes(s.key) && s.has(a)).map((s) => s.key);
-export const pickEnd = (a: Analysis, chosen: readonly EndStat[]) => END.filter((s) => chosen.includes(s.key) && s.has(a)).map((s) => s.key);
+export const pickLive = (a: Analysis, chosen: readonly LiveStat[], w?: Weather | null) => LIVE.filter((s) => chosen.includes(s.key) && s.has(a, w)).map((s) => s.key);
+export const pickEnd = (a: Analysis, chosen: readonly EndStat[], w?: Weather | null) => END.filter((s) => chosen.includes(s.key) && s.has(a, w)).map((s) => s.key);

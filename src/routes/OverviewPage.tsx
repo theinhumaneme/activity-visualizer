@@ -1,5 +1,6 @@
 import { ColorModePicker } from "../components/ColorModePicker";
 import { RouteMap } from "../components/RouteMap";
+import { WeatherCard } from "../components/WeatherCard";
 import { SummaryHeader, startLine } from "../components/analysis/SummaryHeader";
 import { Card, NextStep, Page, Value, stagger } from "../components/ui";
 import { useStore } from "../state/store";
@@ -51,6 +52,7 @@ export function OverviewPage() {
             )}
           </Card>
         )}
+        <WeatherCard />
       </div>
       <NextStep to="/analysis" label="Dig into the analysis" back={{ to: "/check", label: "Check" }} />
     </Page>

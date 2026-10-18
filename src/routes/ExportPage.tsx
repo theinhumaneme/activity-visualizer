@@ -49,6 +49,10 @@ export function ExportPage() {
   const endStats = useStore((s) => s.endStats);
   const setVideoStats = useStore((s) => s.setVideoStats);
   const highlights = useStore((s) => s.highlights);
+  const landmarks = useStore((s) => s.landmarks);
+  const buildings = useStore((s) => s.buildings);
+  const weather = useStore((s) => s.weather);
+  const sunLighting = useStore((s) => s.sunLighting);
   const cameraDistance = useStore((s) => s.cameraDistance);
   const mapDetail = useStore((s) => s.mapDetail);
   const setMapDetail = useStore((s) => s.setMapDetail);
@@ -121,6 +125,10 @@ export function ExportPage() {
       liveStats,
       endStats,
       highlights,
+      landmarks,
+      buildings,
+      weather,
+      sunLighting,
       endCard,
       fps,
       terrain,
@@ -231,12 +239,12 @@ export function ExportPage() {
               <div className="space-y-3">
                 {kind === "video" && stats && (
                   <ControlRow label="During the video" hint={`Up to ${MAX_LIVE}.`}>
-                    <ChipSelect label="Live stats" value={liveStats} max={MAX_LIVE} onChange={(v) => setVideoStats({ liveStats: v })} options={liveOptions(a)} />
+                    <ChipSelect label="Live stats" value={liveStats} max={MAX_LIVE} onChange={(v) => setVideoStats({ liveStats: v })} options={liveOptions(a, weather)} />
                   </ControlRow>
                 )}
                 {(kind === "poster" || endCard) && (
                   <ControlRow label={kind === "poster" ? "On the poster" : "On the end card"} hint={`Up to ${MAX_END}.`}>
-                    <ChipSelect label="End card stats" value={endStats} max={MAX_END} onChange={(v) => setVideoStats({ endStats: v })} options={endOptions(a)} />
+                    <ChipSelect label="End card stats" value={endStats} max={MAX_END} onChange={(v) => setVideoStats({ endStats: v })} options={endOptions(a, weather)} />
                   </ControlRow>
                 )}
                 {kind === "video" && !stats && !endCard && <p className="text-label text-muted">Turn on live stats or the end card under Video to choose what they show.</p>}
@@ -294,6 +302,18 @@ export function ExportPage() {
                       <label className="flex items-center gap-2.5">
                         <input type="checkbox" checked={highlights} onChange={(e) => setVideoStats({ highlights: e.target.checked })} />
                         Highlights on the map (fastest mile, climbs…)
+                      </label>
+                      <label className="flex items-center gap-2.5">
+                        <input type="checkbox" checked={landmarks} onChange={(e) => setVideoStats({ landmarks: e.target.checked })} />
+                        Peak and landmark names
+                      </label>
+                      <label className="flex items-center gap-2.5">
+                        <input type="checkbox" checked={buildings} onChange={(e) => setVideoStats({ buildings: e.target.checked })} />
+                        3D buildings in cities
+                      </label>
+                      <label className="flex items-center gap-2.5">
+                        <input type="checkbox" checked={sunLighting} onChange={(e) => setVideoStats({ sunLighting: e.target.checked })} />
+                        Light the map from the real sun (date and time of the activity)
                       </label>
                     </div>
                   </ControlRow>

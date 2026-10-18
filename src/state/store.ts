@@ -11,9 +11,10 @@ import type { LookId } from "../lib/map/style";
 import type { CameraMode } from "../lib/playback/timeline";
 import { DEFAULT_END, DEFAULT_LIVE, type EndStat, type LiveStat } from "../lib/hud/stats";
 import type { CameraDistance } from "../lib/playback/lengths";
-import type { MapDetail } from "../lib/map/detail";
+import { type MapDetail, resolveDetail } from "../lib/map/detail";
 import type { Activity } from "../lib/parse/types";
 import { boundsOf } from "../lib/geo/geo";
+import { type Weather, fetchWeather } from "../lib/weather";
 import { type TerrainGrid, gridPoints } from "../lib/geo/terrainGrid";
 
 export const SAMPLE_URL = "/samples/reservoir-loop.tcx.xml";
@@ -25,6 +26,7 @@ const PRIVACY_KEY = "rv:privacy-radius";
 const LOOK_KEY = "rv:look";
 const STATS_KEY = "rv:video-stats";
 const DETAIL_KEY = "rv:map-detail";
+const WEATHER_KEY = "rv:weather";
 const LOOK_IDS: LookId[] = ["night", "golden", "editorial", "satellite", "noir", "bluehour", "blueprint"];
 
 function storedLook(): LookId {
@@ -49,15 +51,32 @@ function storedPrivacy(): number {
   return DEFAULT_PRIVACY_RADIUS;
 }
 
-function storedStats(): { liveStats: LiveStat[]; endStats: EndStat[]; highlights: boolean } {
+function storedStats(): { liveStats: LiveStat[]; endStats: EndStat[]; highlights: boolean; landmarks: boolean; buildings: boolean; sunLighting: boolean } {
+  // 3D buildings default to off where the device is Lite: extrusions are costly to draw.
+  const buildingsDefault = resolveDetail(storedDetail()) !== "lite";
   try {
-    const v = JSON.parse(localStorage.getItem(STATS_KEY) ?? "null") as { liveStats?: unknown; endStats?: unknown; highlights?: unknown } | null;
+    const v = JSON.parse(localStorage.getItem(STATS_KEY) ?? "null") as { liveStats?: unknown; endStats?: unknown; highlights?: unknown; landmarks?: unknown; buildings?: unknown; sunLighting?: unknown } | null;
     if (v && Array.isArray(v.liveStats) && Array.isArray(v.endStats))
-      return { liveStats: v.liveStats as LiveStat[], endStats: v.endStats as EndStat[], highlights: v.highlights !== false };
+      return {
+        liveStats: v.liveStats as LiveStat[],
+        endStats: v.endStats as EndStat[],
+        highlights: v.highlights !== false,
+        landmarks: v.landmarks !== false,
+        buildings: typeof v.buildings === "boolean" ? v.buildings : buildingsDefault,
+        sunLighting: v.sunLighting !== false,
+      };
   } catch {
     // Storage unavailable or corrupt.
   }
-  return { liveStats: [...DEFAULT_LIVE], endStats: [...DEFAULT_END], highlights: true };
+  return { liveStats: [...DEFAULT_LIVE], endStats: [...DEFAULT_END], highlights: true, landmarks: true, buildings: buildingsDefault, sunLighting: true };
+}
+
+function storedWeatherOn(): boolean {
+  try {
+    return localStorage.getItem(WEATHER_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 function storedDetail(): MapDetail {
@@ -96,6 +115,11 @@ interface State {
   demStatus: "idle" | "loading" | "done" | "error";
   /** Elevation grid around the route for the flyover camera's terrain clearance. */
   terrainGrid: TerrainGrid | null;
+  /** Weather lookup is opt-in (it sends a rounded location and the date to Open-Meteo). */
+  weatherOn: boolean;
+  weather: Weather | null;
+  weatherStatus: "idle" | "loading" | "done" | "error";
+  setWeatherOn(on: boolean): void;
   loading: boolean;
   error: string | null;
   hoverIndex: number | null;
@@ -112,6 +136,12 @@ interface State {
   endStats: EndStat[];
   /** Label highlights (fastest mile, climbs…) on the map in the flyover and video. */
   highlights: boolean;
+  /** Peak and landmark names on the flyover and video maps. */
+  landmarks: boolean;
+  /** 3D buildings in cities (off by default on Lite devices). */
+  buildings: boolean;
+  /** Light the terrain and buildings from where the sun was during the activity. */
+  sunLighting: boolean;
   /** Chase camera distance (auto picks by sport). */
   cameraDistance: CameraDistance;
   setCameraDistance(d: CameraDistance): void;
@@ -132,7 +162,7 @@ interface State {
   setXAxis(x: "distance" | "time"): void;
   setLook(l: LookId): void;
   setCameraMode(m: CameraMode | "free"): void;
-  setVideoStats(patch: { liveStats?: LiveStat[]; endStats?: EndStat[]; highlights?: boolean }): void;
+  setVideoStats(patch: { liveStats?: LiveStat[]; endStats?: EndStat[]; highlights?: boolean; landmarks?: boolean; buildings?: boolean; sunLighting?: boolean }): void;
   reset(): void;
 }
 
@@ -173,6 +203,21 @@ export const useStore = create<State>((set, get) => {
     );
   }
 
+  /** Fetches the weather for an activity if the user turned weather on (and the activity has times). */
+  function loadWeather(activity: Activity) {
+    set({ weather: null, weatherStatus: "idle" });
+    if (!get().weatherOn || activity.routeOnly || !activity.samples.length) return;
+    const first = activity.samples[0];
+    const last = activity.samples[activity.samples.length - 1];
+    set({ weatherStatus: "loading" });
+    fetchWeather(first.lat, first.lon, first.time, last.time)
+      .then((w) => {
+        if (get().activity !== activity) return;
+        set({ weather: w, weatherStatus: w ? "done" : "error" });
+      })
+      .catch(() => get().activity === activity && set({ weatherStatus: "error" }));
+  }
+
   /** Switches to an activity once its first analysis is ready, so pages never see a mismatched pair. */
   async function selectActivity(activity: Activity) {
     const mine = ++selection;
@@ -194,6 +239,7 @@ export const useStore = create<State>((set, get) => {
     });
     const ctrl = new AbortController();
     demAbort = ctrl;
+    loadWeather(activity);
     sampleTerrain(activity.samples, ctrl.signal)
       .then((dem) => {
         if (ctrl.signal.aborted || get().activity !== activity) return;
@@ -224,6 +270,20 @@ export const useStore = create<State>((set, get) => {
     dem: null,
     demStatus: "idle",
     terrainGrid: null,
+    weatherOn: storedWeatherOn(),
+    weather: null,
+    weatherStatus: "idle",
+    setWeatherOn(on) {
+      try {
+        localStorage.setItem(WEATHER_KEY, on ? "1" : "0");
+      } catch {
+        // Not critical.
+      }
+      set({ weatherOn: on });
+      const act = get().activity;
+      if (on && act) loadWeather(act);
+      if (!on) set({ weather: null, weatherStatus: "idle" });
+    },
     loading: false,
     error: null,
     hoverIndex: null,
@@ -361,7 +421,7 @@ export const useStore = create<State>((set, get) => {
     setVideoStats(patch) {
       set(patch);
       try {
-        localStorage.setItem(STATS_KEY, JSON.stringify({ liveStats: get().liveStats, endStats: get().endStats, highlights: get().highlights }));
+        localStorage.setItem(STATS_KEY, JSON.stringify({ liveStats: get().liveStats, endStats: get().endStats, highlights: get().highlights, landmarks: get().landmarks, buildings: get().buildings, sunLighting: get().sunLighting }));
       } catch {
         // Not critical.
       }

@@ -26,6 +26,7 @@ import type { Look } from "../map/style";
 import type { FrameState } from "../playback/timeline";
 import { SPORTS } from "../sport";
 import { DEFAULT_END, DEFAULT_LIVE, type EndStat, type LiveStat, pickEnd, pickLive } from "./stats";
+import { type Weather, formatTemp, weatherAt, weatherSummary, weatherText } from "../weather";
 
 // The app's typeface, so overlays and exports match the interface. Titles are Inter at a heavier weight.
 export const FONT_SANS = '"Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
@@ -68,6 +69,8 @@ export interface HudOptions {
   endStats?: readonly EndStat[];
   /** Label highlights (fastest mile, climbs…) on the map as the athlete passes them (default on). */
   highlights?: boolean;
+  /** Weather during the activity, for the temperature / weather stats (when the user turned it on). */
+  weather?: Weather | null;
 }
 
 interface Palette {
@@ -142,7 +145,7 @@ export function drawPreviewHud(ctx: CanvasRenderingContext2D, W: number, H: numb
   if (o.stats && !a.privacy.empty) {
     drawStats(ctx, W, H, s, a, f, o, P, portrait, pad, safeBottom);
     if (!portrait) {
-      const items = liveItems(a, f.statsIndex, o.liveStats).length;
+      const items = liveItems(a, f.statsIndex, o.liveStats, o.weather).length;
       const cols = W < H * 1.3 ? 3 : items;
       const panelTop = safeBottom - (Math.ceil(items / cols) * 108 * s + 74 * s + 40 * s);
       lift = Math.max(0, H - 129 * s - (panelTop - 28 * s));
@@ -292,7 +295,7 @@ function drawStats(
   safeBottom: number,
 ) {
   const alpha = f.fx.hud;
-  const items = liveItems(a, f.statsIndex, o.liveStats);
+  const items = liveItems(a, f.statsIndex, o.liveStats, o.weather);
   const square = !portrait && W < H * 1.3;
   const cols = portrait || square ? 3 : items.length;
   const rows = Math.ceil(items.length / cols);
@@ -338,13 +341,13 @@ interface Item {
 }
 
 /** Live HUD values at a (10 Hz) marker index, for the chosen stats the activity has. */
-function liveItems(a: Analysis, i: number, chosen: readonly LiveStat[] = DEFAULT_LIVE): Item[] {
+function liveItems(a: Analysis, i: number, chosen: readonly LiveStat[] = DEFAULT_LIVE, weather?: Weather | null): Item[] {
   const u = a.settings.units;
   const kind = a.activity.kind;
   const unit = unitLabel(u);
   const k = Math.min(a.n - 1, Math.max(0, Math.round(i)));
   const out: Item[] = [];
-  for (const key of pickLive(a, chosen)) {
+  for (const key of pickLive(a, chosen, weather)) {
     if (key === "time") out.push({ label: "TIME", value: formatDuration(atIndex(a.t, i)) });
     else if (key === "moving") out.push({ label: "MOVING", value: formatDuration(atIndex(a.movingTime, i)) });
     else if (key === "distance") out.push({ label: "DISTANCE", value: (atIndex(a.dist, i) / (u === "metric" ? 1000 : 1609.344)).toFixed(2), unit });
@@ -386,6 +389,9 @@ function liveItems(a: Analysis, i: number, chosen: readonly LiveStat[] = DEFAULT
         }
       }
       out.push({ label: "POWER", value: cnt ? String(Math.round(sum / cnt)) : "—", unit: "W" });
+    } else if (key === "temp" && weather) {
+      const t = formatTemp(weatherAt(weather, a.samples[k].time).temp, u);
+      out.push({ label: "TEMP", value: t.replace(/°[CF]$/, "°"), unit: u === "metric" ? "C" : "F" });
     }
   }
   return out;
@@ -568,7 +574,7 @@ function drawEndCard(
   ctx.save();
   ctx.globalAlpha = alpha;
 
-  const stats = endStats(a, o.endStats);
+  const stats = endStats(a, o.endStats, o.weather);
   const cols = portrait ? 2 : Math.min(stats.length, W > H * 1.3 ? 5 : 3);
   const rows = Math.ceil(stats.length / cols);
   const pad = 64 * s;
@@ -625,7 +631,7 @@ function drawEndCard(
 }
 
 /** End-card summary, for the chosen stats the activity has (default: distance, total time, avg pace, gain, avg HR). */
-function endStats(a: Analysis, chosen: readonly EndStat[] = DEFAULT_END): Item[] {
+function endStats(a: Analysis, chosen: readonly EndStat[] = DEFAULT_END, weather?: Weather | null): Item[] {
   const sm = a.summary;
   const u = a.settings.units;
   const kind = a.activity.kind;
@@ -634,7 +640,7 @@ function endStats(a: Analysis, chosen: readonly EndStat[] = DEFAULT_END): Item[]
     return { value, unit: rest.join(" ") || undefined };
   };
   const out: Item[] = [];
-  for (const key of pickEnd(a, chosen)) {
+  for (const key of pickEnd(a, chosen, weather)) {
     if (key === "distance") out.push({ label: "DISTANCE", value: (sm.distance / (u === "metric" ? 1000 : 1609.344)).toFixed(2), unit: unitLabel(u) });
     else if (key === "total") out.push({ label: "TOTAL TIME", value: formatDuration(sm.elapsed) });
     else if (key === "moving") out.push({ label: "MOVING TIME", value: formatDuration(sm.moving) });
@@ -654,6 +660,10 @@ function endStats(a: Analysis, chosen: readonly EndStat[] = DEFAULT_END): Item[]
     else if (key === "cadence") out.push({ label: "AVG CADENCE", value: String(Math.round(sm.avgCadence!)), unit: SPORTS[kind].footCadence ? "spm" : "rpm" });
     else if (key === "power") out.push({ label: "AVG POWER", value: String(Math.round(sm.avgPower!)), unit: "W" });
     else if (key === "calories") out.push({ label: "CALORIES", value: Math.round(sm.calories!).toLocaleString("en-US"), unit: "kcal" });
+    else if (key === "weather" && weather) {
+      const w = weatherSummary(weather, a.samples[0].time, a.samples[a.n - 1].time);
+      out.push({ label: "WEATHER", value: formatTemp(w.temp, u), unit: weatherText(w.code).toLowerCase() });
+    }
   }
   return out;
 }

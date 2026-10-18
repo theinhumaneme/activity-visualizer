@@ -7,6 +7,8 @@ import { sampler } from "../lib/geo/terrainGrid";
 import { drawHud, loadHudFonts } from "../lib/hud/hud";
 import { COLOR_MODES, modeAvailable } from "../lib/map/route";
 import { DETAIL, MAP_DETAILS, applyTerrainQuality, resolveDetail } from "../lib/map/detail";
+import { addBuildingLayer, addLandmarkLayers, setBuildingsVisible, setLandmarksVisible } from "../lib/map/landmarks";
+import { activitySun, applySunLighting } from "../lib/map/sun";
 import { LOOKS, type LookId, flyoverStyle } from "../lib/map/style";
 import { planTiles, preloadTiles, releaseTiles, retryTiles } from "../lib/map/tileFetch";
 import { FlyoverRenderer, addFlyoverLayers } from "../lib/playback/renderer";
@@ -53,6 +55,10 @@ export function FlyoverPage() {
   const liveStats = useStore((s) => s.liveStats);
   const endStats = useStore((s) => s.endStats);
   const highlights = useStore((s) => s.highlights);
+  const landmarks = useStore((s) => s.landmarks);
+  const buildings = useStore((s) => s.buildings);
+  const weather = useStore((s) => s.weather);
+  const sunLighting = useStore((s) => s.sunLighting);
   const cameraDistance = useStore((s) => s.cameraDistance);
   const mapDetail = useStore((s) => s.mapDetail);
   const setMapDetail = useStore((s) => s.setMapDetail);
@@ -112,6 +118,7 @@ export function FlyoverPage() {
         liveStats,
         endStats,
         highlights,
+        weather,
         attribution: "",
         // Keep the stats clear of the map's own attribution control.
         bottomInset: 40 * dpr,
@@ -122,7 +129,7 @@ export function FlyoverPage() {
         },
       });
     },
-    [a, look, routeColor, exaggeration, liveStats, endStats, highlights],
+    [a, look, routeColor, exaggeration, liveStats, endStats, highlights, weather],
   );
 
   /**
@@ -187,6 +194,10 @@ export function FlyoverPage() {
           const st = useStore.getState();
           applyTerrainQuality(map!, DETAIL[detail].terrainQuality);
           addFlyoverLayers(map!, look);
+          addLandmarkLayers(map!, look, a.settings.units, useStore.getState().landmarks);
+          addBuildingLayer(map!, look, useStore.getState().buildings);
+          const sun = useStore.getState().sunLighting ? activitySun(a.samples, !a.activity.routeOnly) : null;
+          if (sun) applySunLighting(map!, sun);
           rendererRef.current = new FlyoverRenderer(map!, a, { mode: st.colorMode, color: st.routeColor, theme: look.ramp }, look);
           setReady(true);
           // Don't block the preview on every last tile: first idle, or 4 s, whichever comes first.
@@ -206,7 +217,7 @@ export function FlyoverPage() {
     };
     // `look` and `drawOverlay` derive from lookId and the activity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [a, lookId, exaggeration, attempt, detail]);
+  }, [a, lookId, exaggeration, attempt, detail, sunLighting]);
 
   // (Re)build the timeline when framing inputs change, keeping the relative position.
   /**
@@ -291,6 +302,14 @@ export function FlyoverPage() {
       cancelAnimationFrame(pending);
     };
   }, [ready, a, length, cameraMode, cameraDistance, reduced, exaggeration, terrainGrid, show, schedulePreload]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (ready && map) {
+      setLandmarksVisible(map, landmarks);
+      setBuildingsVisible(map, buildings);
+    }
+  }, [ready, landmarks, buildings]);
 
   // Free orbit hands the camera to you; the marker keeps playing.
   useEffect(() => {
@@ -488,6 +507,48 @@ export function FlyoverPage() {
               value={String(length)}
               onChange={(v) => setLength(Number(v))}
               options={CHASE_LENGTHS.map((l) => ({ value: String(l), label: lengthLabel(l) }))}
+            />
+          </ControlRow>
+          <ControlRow label="Place names">
+            <Segmented
+              size="sm"
+              label="Peak and landmark names"
+              value={landmarks ? "on" : "off"}
+              onChange={(v) => setVideoStats({ landmarks: v === "on" })}
+              options={[
+                { value: "on", label: "Peaks & landmarks" },
+                { value: "off", label: "Off" },
+              ]}
+            />
+          </ControlRow>
+          <ControlRow
+            label="Sun lighting"
+            hint={(() => {
+              const sun = activitySun(a.samples, !a.activity.routeOnly);
+              return sun ? (sun.altitude < 0 ? "The sun was down; the look's own lighting is used." : `Sun ${Math.round(sun.altitude)}° up, from the ${["north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"][Math.round(sun.azimuth / 45) % 8]}.`) : undefined;
+            })()}
+          >
+            <Segmented
+              size="sm"
+              label="Sun lighting"
+              value={sunLighting ? "real" : "look"}
+              onChange={(v) => setVideoStats({ sunLighting: v === "real" })}
+              options={[
+                { value: "real", label: "Real sun" },
+                { value: "look", label: "Look's own" },
+              ]}
+            />
+          </ControlRow>
+          <ControlRow label="3D buildings">
+            <Segmented
+              size="sm"
+              label="3D buildings"
+              value={buildings ? "on" : "off"}
+              onChange={(v) => setVideoStats({ buildings: v === "on" })}
+              options={[
+                { value: "on", label: "On" },
+                { value: "off", label: "Off" },
+              ]}
             />
           </ControlRow>
           <ControlRow label="Highlights">
