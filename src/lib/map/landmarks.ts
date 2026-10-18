@@ -106,7 +106,7 @@ function buildingColor(look: Look): string {
 }
 
 /**
- * Extrudes buildings to their mapped height (OpenMapTiles render_height) from zoom 14, where
+ * Extrudes buildings to their mapped height (OpenMapTiles render_height) from zoom 13, where
  * city runs and rides are filmed. Drawn above the draped route, so buildings in front hide it as
  * they would in real life.
  */
@@ -118,11 +118,14 @@ export function addBuildingLayer(map: MlMap, look: Look, visible: boolean) {
       type: "fill-extrusion",
       source: SOURCE,
       "source-layer": "building",
-      minzoom: 14,
+      // A step below the chase camera's usual zoom, so they don't pop in and out around it.
+      minzoom: 13,
       layout: { visibility: visible ? "visible" : "none" },
       paint: {
         "fill-extrusion-color": buildingColor(look),
-        "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"], 14, 0, 14.6, ["coalesce", ["get", "render_height"], 6]],
+        // Full height at every zoom: easing heights in with zoom made buildings rise and sink as
+        // the camera's zoom changes with your speed.
+        "fill-extrusion-height": ["coalesce", ["get", "render_height"], 6],
         "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0],
         "fill-extrusion-opacity": look.id === "night" || look.id === "blueprint" || look.hud === "light" ? 0.85 : 0.7,
       },
