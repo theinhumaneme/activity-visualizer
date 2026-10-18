@@ -1,12 +1,14 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { ColorModePicker } from "../components/ColorModePicker";
 import { Card, Check, ChipSelect, ControlRow, Failure, GroupHeading, NextStep, Page, Segmented, Spinner } from "../components/ui";
-import { type Aspect, type ExportProgress, type ExportResult, exportDuration, exportSize, renderPoster, renderVideo, videoBitrate } from "../lib/export/render";
+import { type Aspect, type ExportProgress, type ExportResult, type Resolution, exportDuration, exportSize, renderPoster, renderVideo, videoBitrate } from "../lib/export/render";
 import { MAX_END, MAX_LIVE, endOptions, liveOptions, withWeather, withoutWeather } from "../lib/hud/stats";
 import { drawExportPreview } from "../lib/export/preview";
 import { formatDuration } from "../lib/format/format";
 import { loadHudFonts } from "../lib/hud/hud";
 import { MAP_DETAILS, resolveDetail } from "../lib/map/detail";
+import { HAZES } from "../lib/map/sun";
+import { placePhotos } from "../lib/photos";
 import { LOOKS, type LookId } from "../lib/map/style";
 import { CAMERA_DISTANCES, CHASE_LENGTHS, cameraDistanceScale, lengthLabel, suggestedLength } from "../lib/playback/lengths";
 import { CAMERA_OPTIONS, type CameraMode, autoExaggeration } from "../lib/playback/timeline";
@@ -52,7 +54,12 @@ export function ExportPage() {
   const landmarks = useStore((s) => s.landmarks);
   const buildings = useStore((s) => s.buildings);
   const weather = useStore((s) => s.weather);
+  const haze = useStore((s) => s.haze);
   const ghosts = useStore((s) => s.ghosts);
+  const photos = useStore((s) => s.photos);
+  const photosOn = useStore((s) => s.photosOn);
+  const setPhotosOn = useStore((s) => s.setPhotosOn);
+  const placedPhotos = useMemo(() => placePhotos(a, photos).placed, [a, photos]);
   const ghostsOn = useStore((s) => s.ghostsOn);
   const setGhostsOn = useStore((s) => s.setGhostsOn);
   const weatherOn = useStore((s) => s.weatherOn);
@@ -66,7 +73,7 @@ export function ExportPage() {
   const [kind, setKind] = useState<"video" | "poster">("video");
   const [aspect, setAspect] = useState<Aspect>("9:16");
   // Lite devices (low memory) default to 720p: about half the encoding work and file size.
-  const [resolution, setResolution] = useState<720 | 1080>(() => (resolveDetail(useStore.getState().mapDetail) === "lite" ? 720 : 1080));
+  const [resolution, setResolution] = useState<Resolution>(() => (resolveDetail(useStore.getState().mapDetail) === "lite" ? 720 : 1080));
   const [fps, setFps] = useState<30 | 60>(30);
   const [length, setLength] = useState<number>(() => suggestedLength(a.activity.routeOnly ? 0 : a.summary.moving));
   const [mode, setMode] = useState<CameraMode>(storeMode === "free" ? "cinematic" : storeMode);
@@ -135,7 +142,9 @@ export function ExportPage() {
       buildings,
       weather,
       ghosts: ghostsOn ? ghosts : null,
+      photos: photosOn ? placedPhotos.map((p) => ({ image: p.photo.bitmap, at: p.at, index: p.index })) : null,
       sunLighting,
+      haze,
       endCard,
       fps,
       terrain,
@@ -204,15 +213,25 @@ export function ExportPage() {
                     );
                   })}
                 </div>
-                <ControlRow label="Quality">
+                <ControlRow
+                  label="Quality"
+                  hint={
+                    resolution === 2160
+                      ? resolveDetail(useStore.getState().mapDetail) === "lite"
+                        ? "4K needs lots of graphics memory: this device may not manage it. Try it on a computer."
+                        : "4K: sharpest imagery and terrain, about 4× the render time and file size of 1080p. Best on a computer."
+                      : undefined
+                  }
+                >
                   <Segmented
                     size="sm"
                     label="Quality"
                     value={String(resolution)}
-                    onChange={(v) => setResolution(Number(v) as 720 | 1080)}
+                    onChange={(v) => setResolution(Number(v) as Resolution)}
                     options={[
                       { value: "720", label: "720p" },
                       { value: "1080", label: "1080p" },
+                      { value: "2160", label: "4K" },
                     ]}
                   />
                 </ControlRow>
@@ -284,6 +303,15 @@ export function ExportPage() {
                   >
                     <Segmented size="sm" label="Route playback length" value={String(length)} onChange={(v) => setLength(Number(v))} options={CHASE_LENGTHS.map((l) => ({ value: String(l), label: lengthLabel(l) }))} />
                   </ControlRow>
+                  <ControlRow label="Haze" hint={haze === "auto" ? "The look's own, or from the weather when it's on." : undefined}>
+                    <Segmented
+                      size="sm"
+                      label="Haze"
+                      value={haze}
+                      onChange={(v) => setVideoStats({ haze: v })}
+                      options={HAZES.map((h) => ({ value: h, label: h[0].toUpperCase() + h.slice(1) }))}
+                    />
+                  </ControlRow>
                   <ControlRow label="Camera distance" hint={cameraDistance === "auto" ? (["run", "ride", "walk"].includes(a.activity.kind) ? "Close for this activity." : "Far for this activity.") : undefined}>
                     <Segmented size="sm" label="Camera distance" value={cameraDistance} onChange={setCameraDistance} options={CAMERA_DISTANCES} />
                   </ControlRow>
@@ -318,6 +346,12 @@ export function ExportPage() {
                         <input type="checkbox" checked={buildings} onChange={(e) => setVideoStats({ buildings: e.target.checked })} />
                         3D buildings in cities
                       </label>
+                      {placedPhotos.length > 0 && (
+                        <label className="flex items-center gap-2.5">
+                          <input type="checkbox" checked={photosOn} onChange={(e) => setPhotosOn(e.target.checked)} />
+                          Your photos where you took them ({placedPhotos.length}; add more on the Flyover step)
+                        </label>
+                      )}
                       {ghosts && ghosts.length > 0 && (
                         <label className="flex items-center gap-2.5">
                           <input type="checkbox" checked={ghostsOn} onChange={(e) => setGhostsOn(e.target.checked)} />
@@ -345,7 +379,7 @@ export function ExportPage() {
                       )}
                       <label className="flex items-center gap-2.5">
                         <input type="checkbox" checked={sunLighting} onChange={(e) => setVideoStats({ sunLighting: e.target.checked })} />
-                        Light the map from the real sun (date and time of the activity)
+                        Light the map from the real sun (date and time of the activity; on Satellite, the sky too)
                       </label>
                     </div>
                   </ControlRow>

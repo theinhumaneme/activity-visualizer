@@ -10,7 +10,8 @@ import { DETAIL, type DetailLevel, applyTerrainQuality } from "../map/detail";
 import { addBuildingLayer, addLandmarkLayers } from "../map/landmarks";
 import type { Weather } from "../weather";
 import type { GhostRunner } from "../playback/ghosts";
-import { activitySun, applySunLighting } from "../map/sun";
+import type { LngLat } from "../geo/geo";
+import { type Haze, activityAir, activitySun, applyAtmosphere, applySunLighting, captureAtmosphere } from "../map/sun";
 import { LOOKS, type LookId, flyoverStyle } from "../map/style";
 import { planTiles, preloadTiles, releaseTiles, reloadFailedTiles, retryTiles, tileHealth } from "../map/tileFetch";
 import { FlyoverRenderer, addFlyoverLayers, settled } from "../playback/renderer";
@@ -18,10 +19,12 @@ import { type CameraMode, type Timeline, buildTimeline } from "../playback/timel
 
 export type Aspect = "9:16" | "1:1" | "16:9";
 
+export type Resolution = 720 | 1080 | 2160;
+
 export interface ExportOptions {
   aspect: Aspect;
-  /** Length of the short side in pixels. */
-  resolution: 720 | 1080;
+  /** Length of the short side in pixels (2160 = 4K). */
+  resolution: Resolution;
   followSeconds: number;
   colorMode: ColorMode;
   routeColor: string;
@@ -42,8 +45,12 @@ export interface ExportOptions {
   weather?: Weather | null;
   /** Earlier runs of the route to race (ghost race), when set from the library. */
   ghosts?: readonly GhostRunner[] | null;
+  /** Photos placed on the route (sample index), shown as the athlete passes. */
+  photos?: readonly { image: ImageBitmap; at: LngLat; index: number }[] | null;
   /** Light terrain and buildings from the sun's real position (default on). */
   sunLighting?: boolean;
+  /** Haze over the distance ("auto": from the weather when it's on, else the look's own). */
+  haze?: Haze;
   /** Multiplier on the chase camera distance. */
   distanceScale?: number;
   /** Map detail level (sharper terrain textures and imagery at High). */
@@ -81,7 +88,11 @@ export function exportSize(aspect: Aspect, short: number) {
   return { width: short, height: short };
 }
 
-const PIXEL_RATIO = 2;
+/**
+ * Map pixels per CSS pixel. 4K keeps 1080p's map size in CSS pixels (same framing, same label
+ * sizes) and draws it at twice the density.
+ */
+const pixelRatioFor = (resolution: Resolution) => (resolution === 2160 ? 4 : 2);
 /** The export page's progress text and preview update at most this often (ms). */
 const PROGRESS_MS = 250;
 /** Camera samples per second of video when working out which tiles to preload. */
@@ -119,6 +130,8 @@ interface Stage {
 /** An off-screen map at export resolution plus the composite canvas the HUD is drawn onto. */
 async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Promise<Stage> {
   const { width: W, height: H } = exportSize(opts.aspect, opts.resolution);
+  const PIXEL_RATIO = pixelRatioFor(opts.resolution);
+  const uhd = opts.resolution === 2160;
   const cssW = W / PIXEL_RATIO;
   const cssH = H / PIXEL_RATIO;
   const look = LOOKS[opts.look];
@@ -128,7 +141,8 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
   document.body.appendChild(host);
   // Fonts are only needed for the first HUD draw: load them while the map loads.
   const fonts = loadHudFonts(look);
-  const detail = opts.detail ?? "standard";
+  // 4K always takes the finest tiles and terrain mesh: anything less would be upscaled.
+  const detail = uhd ? "high" : (opts.detail ?? "standard");
   // Exports keep the full look even on Lite devices (Lite only lightens on-page maps).
   const style = await flyoverStyle(opts.look, opts.exaggeration, detail === "lite" ? "standard" : detail);
   const map = new MlMap({
@@ -176,12 +190,20 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
   if (opts.terrain) map.setCenterClampedToGround(false);
   redrawTexturesAtOnce(map);
   // Exports never go below MapLibre's default texture resolution (Lite only lightens on-page maps).
-  applyTerrainQuality(map, Math.max(2, DETAIL[detail].terrainQuality));
+  // At 4K the draped textures need twice the resolution to stay as sharp (capped: 30 of them sit
+  // in graphics memory).
+  applyTerrainQuality(map, uhd ? 4 : Math.max(2, DETAIL[detail].terrainQuality));
   addFlyoverLayers(map, look);
   addLandmarkLayers(map, look, a.settings.units, opts.landmarks !== false);
   addBuildingLayer(map, look, opts.buildings !== false);
   const sun = opts.sunLighting === false ? null : activitySun(a.samples, !a.activity.routeOnly);
   if (sun) applySunLighting(map, sun);
+  applyAtmosphere(map, captureAtmosphere(map), {
+    realSky: opts.sunLighting !== false,
+    sun: activitySun(a.samples, !a.activity.routeOnly),
+    weather: activityAir(a.samples, opts.weather ?? null),
+    haze: opts.haze ?? "auto",
+  });
   const renderer = new FlyoverRenderer(map, a, { mode: opts.colorMode, color: opts.routeColor, theme: look.ramp }, look);
   // The map's size is fixed: project without reading layout from the DOM every frame.
   renderer.setViewport(cssW, cssH);
@@ -198,6 +220,7 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
     endCard: opts.endCard,
     elevationAt: opts.terrain ? sampler(opts.terrain, NaN) : null,
   });
+  const photos = opts.photos?.map((p) => ({ image: p.image, at: p.at, T: timeline.timeAtIndex(p.index) })) ?? null;
   const composite = document.createElement("canvas");
   composite.width = W;
   composite.height = H;
@@ -220,6 +243,7 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
       highlights: opts.highlights,
       weather: opts.weather,
       ghosts: opts.ghosts,
+      photos,
       endCard: opts.endCard,
       attribution,
       exaggeration: opts.exaggeration,

@@ -74,6 +74,15 @@ export interface HudOptions {
   weather?: Weather | null;
   /** Earlier runs of the route to race (ghost race). */
   ghosts?: readonly GhostRunner[] | null;
+  /** Photos placed on the route, with the video time the marker reaches each one. */
+  photos?: readonly HudPhoto[] | null;
+}
+
+export interface HudPhoto {
+  image: CanvasImageSource & { width: number; height: number };
+  at: LngLat;
+  /** Video time the athlete passes the spot. */
+  T: number;
 }
 
 interface Palette {
@@ -122,6 +131,7 @@ export function drawHud(ctx: CanvasRenderingContext2D, W: number, H: number, a: 
   }
   if (o.stats && f.fx.hud > 0 && !a.privacy.empty) drawStats(ctx, W, H, s, a, f, o, P, portrait, pad, safeBottom);
   if (f.moment && f.fx.hud > 0 && o.highlights !== false) drawMoment(ctx, W, s, a, f, o, P);
+  if (o.photos?.length && f.shot !== "pullback" && f.shot !== "end") drawPhotos(ctx, W, H, s, f, o, portrait, pad, safeTop, safeBottom);
   if (f.fx.finish > 0) drawFinish(ctx, W, s, a, f.fx.finish, o, P, titleFont, safeTop, portrait);
   if (f.shot === "chase" || f.shot === "reveal") drawDisclosure(ctx, W, s, f, o, P, pad, safeTop, portrait);
   if (o.endCard && f.fx.summary > 0) drawEndCard(ctx, W, H, s, a, f.fx.summary, o, P, titleFont, portrait, safeTop, safeBottom, false);
@@ -281,6 +291,60 @@ function drawGhosts(ctx: CanvasRenderingContext2D, s: number, a: Analysis, f: Fr
     ctx.fillText(words, x + 14 * s + lw + 10 * s, y + h * 0.67);
     ctx.restore();
   }
+}
+
+/** Seconds of video a photo stays up after the athlete passes its spot. */
+const PHOTO_HOLD = 3.2;
+
+/**
+ * A photo as a print that pops up when the athlete passes the spot it was taken, with a pin there
+ * on the map. Upper part of the frame, clear of the live stats.
+ */
+function drawPhotos(ctx: CanvasRenderingContext2D, W: number, H: number, s: number, f: FrameState, o: HudOptions, portrait: boolean, pad: number, safeTop: number, safeBottom: number) {
+  o.photos!.forEach((p, k) => {
+    const t = f.T - p.T;
+    if (t < 0 || t > PHOTO_HOLD) return;
+    const fadeIn = Math.min(1, t / 0.35);
+    const alpha = Math.min(1 - (1 - fadeIn) ** 3, Math.min(1, (PHOTO_HOLD - t) / 0.45));
+    if (alpha <= 0) return;
+    const pin = o.project?.(p.at);
+    ctx.save();
+    if (pin) {
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.arc(pin[0], pin[1], 9 * s, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+      ctx.lineWidth = 4 * s;
+      ctx.strokeStyle = o.accent;
+      ctx.stroke();
+    }
+    // Fit the print in its box, keeping the photo's shape.
+    const boxW = portrait ? W * 0.72 : W * 0.34;
+    const boxH = portrait ? (safeBottom - safeTop) * 0.42 : H * 0.46;
+    const frame = 12 * s;
+    const k2 = Math.min((boxW - 2 * frame) / p.image.width, (boxH - 2 * frame) / p.image.height);
+    const iw = p.image.width * k2;
+    const ih = p.image.height * k2;
+    const w = iw + 2 * frame;
+    const h = ih + 2 * frame;
+    const cx = portrait ? W / 2 : W - pad - w / 2;
+    const cy = (portrait ? safeTop + 70 * s : pad + 70 * s) + h / 2 + (1 - fadeIn) * 24 * s;
+    ctx.globalAlpha = alpha;
+    ctx.translate(cx, cy);
+    ctx.rotate(((k % 2 ? 1 : -1) * 1.6 * Math.PI) / 180);
+    ctx.scale(0.94 + 0.06 * fadeIn, 0.94 + 0.06 * fadeIn);
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 30 * s;
+    ctx.shadowOffsetY = 10 * s;
+    ctx.fillStyle = "#fbfaf7";
+    ctx.beginPath();
+    ctx.roundRect(-w / 2, -h / 2, w, h, 6 * s);
+    ctx.fill();
+    ctx.shadowColor = "transparent";
+    ctx.drawImage(p.image, -w / 2 + frame, -h / 2 + frame, iw, ih);
+    ctx.restore();
+  });
 }
 
 /** Soft shadow for text drawn straight on the map. */

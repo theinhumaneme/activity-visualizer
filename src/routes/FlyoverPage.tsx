@@ -6,11 +6,12 @@ import { formatDuration } from "../lib/format/format";
 import { sampler } from "../lib/geo/terrainGrid";
 import { drawHud, loadHudFonts } from "../lib/hud/hud";
 import { withWeather, withoutWeather } from "../lib/hud/stats";
+import { placePhotos } from "../lib/photos";
 import { formatTemp, weatherSummary, weatherText } from "../lib/weather";
 import { COLOR_MODES, modeAvailable } from "../lib/map/route";
 import { DETAIL, MAP_DETAILS, applyTerrainQuality, resolveDetail } from "../lib/map/detail";
 import { addBuildingLayer, addLandmarkLayers, setBuildingsVisible, setLandmarksVisible } from "../lib/map/landmarks";
-import { activitySun, applySunLighting } from "../lib/map/sun";
+import { type AtmosphereBase, HAZES, activityAir, activitySun, applyAtmosphere, applySunLighting, captureAtmosphere } from "../lib/map/sun";
 import { LOOKS, type LookId, flyoverStyle } from "../lib/map/style";
 import { planTiles, preloadTiles, releaseTiles, retryTiles } from "../lib/map/tileFetch";
 import { FlyoverRenderer, addFlyoverLayers } from "../lib/playback/renderer";
@@ -62,11 +63,19 @@ export function FlyoverPage() {
   const weather = useStore((s) => s.weather);
   const weatherOn = useStore((s) => s.weatherOn);
   const ghosts = useStore((s) => s.ghosts);
+  const photos = useStore((s) => s.photos);
+  const photosOn = useStore((s) => s.photosOn);
+  const setPhotosOn = useStore((s) => s.setPhotosOn);
+  const addPhotos = useStore((s) => s.addPhotos);
+  const removePhoto = useStore((s) => s.removePhoto);
+  const [photoProblems, setPhotoProblems] = useState<string[]>([]);
+  const placement = useMemo(() => placePhotos(a, photos), [a, photos]);
   const ghostsOn = useStore((s) => s.ghostsOn);
   const setGhostsOn = useStore((s) => s.setGhostsOn);
   const weatherStatus = useStore((s) => s.weatherStatus);
   const setWeatherOn = useStore((s) => s.setWeatherOn);
   const sunLighting = useStore((s) => s.sunLighting);
+  const haze = useStore((s) => s.haze);
   const cameraDistance = useStore((s) => s.cameraDistance);
   const mapDetail = useStore((s) => s.mapDetail);
   const setMapDetail = useStore((s) => s.setMapDetail);
@@ -87,6 +96,8 @@ export function FlyoverPage() {
   const freeRef = useRef(free);
   freeRef.current = free;
   const [ready, setReady] = useState(false);
+  /** The look's own sky, so the real sky and haze can be switched off again. */
+  const atmosphere = useRef<AtmosphereBase | null>(null);
   const [loadingTiles, setLoadingTiles] = useState(true);
   const [styleError, setStyleError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -128,6 +139,10 @@ export function FlyoverPage() {
         highlights,
         weather,
         ghosts: ghostsOn ? ghosts : null,
+        photos:
+          photosOn && timelineRef.current
+            ? placement.placed.map((p) => ({ image: p.photo.bitmap, at: p.at, T: timelineRef.current!.timeAtIndex(p.index) }))
+            : null,
         attribution: "",
         // Keep the stats clear of the map's own attribution control.
         bottomInset: 40 * dpr,
@@ -138,7 +153,7 @@ export function FlyoverPage() {
         },
       });
     },
-    [a, look, routeColor, exaggeration, liveStats, endStats, highlights, weather, ghosts, ghostsOn],
+    [a, look, routeColor, exaggeration, liveStats, endStats, highlights, weather, ghosts, ghostsOn, placement, photosOn],
   );
 
   /**
@@ -207,6 +222,7 @@ export function FlyoverPage() {
           addBuildingLayer(map!, look, useStore.getState().buildings);
           const sun = useStore.getState().sunLighting ? activitySun(a.samples, !a.activity.routeOnly) : null;
           if (sun) applySunLighting(map!, sun);
+          atmosphere.current = captureAtmosphere(map!);
           rendererRef.current = new FlyoverRenderer(map!, a, { mode: st.colorMode, color: st.routeColor, theme: look.ramp }, look);
           setReady(true);
           // Don't block the preview on every last tile: first idle, or 4 s, whichever comes first.
@@ -319,6 +335,17 @@ export function FlyoverPage() {
       setBuildingsVisible(map, buildings);
     }
   }, [ready, landmarks, buildings]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map || !atmosphere.current) return;
+    applyAtmosphere(map, atmosphere.current, {
+      realSky: sunLighting,
+      sun: activitySun(a.samples, !a.activity.routeOnly),
+      weather: activityAir(a.samples, weather),
+      haze,
+    });
+  }, [ready, a, sunLighting, weather, haze]);
 
   // Free orbit hands the camera to you; the marker keeps playing.
   useEffect(() => {
@@ -534,7 +561,7 @@ export function FlyoverPage() {
             label="Sun lighting"
             hint={(() => {
               const sun = activitySun(a.samples, !a.activity.routeOnly);
-              return sun ? (sun.altitude < 0 ? "The sun was down; the look's own lighting is used." : `Sun ${Math.round(sun.altitude)}° up, from the ${["north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"][Math.round(sun.azimuth / 45) % 8]}.`) : undefined;
+              return sun ? ((sun.altitude < 0 ? "The sun was down: terrain keeps the look's lighting." : `Sun ${Math.round(sun.altitude)}° up, from the ${["north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"][Math.round(sun.azimuth / 45) % 8]}.`) + (lookId === "satellite" ? " The sky and light match that time of day." : "")) : undefined;
             })()}
           >
             <Segmented
@@ -591,6 +618,74 @@ export function FlyoverPage() {
               />
             </ControlRow>
           )}
+          <ControlRow
+            label="Haze"
+            hint={haze === "auto" ? (weather ? "From the weather that day (fog and rain thicken it)." : "The look's own; follows the weather when weather is on.") : undefined}
+          >
+            <Segmented
+              size="sm"
+              label="Haze"
+              value={haze}
+              onChange={(v) => setVideoStats({ haze: v })}
+              options={HAZES.map((h) => ({ value: h, label: h[0].toUpperCase() + h.slice(1) }))}
+            />
+          </ControlRow>
+          {!a.activity.routeOnly && (
+            <ControlRow
+              label="Photos"
+              hint={
+                photos.length
+                  ? [
+                      `${placement.placed.length} of ${photos.length} placed on the route by ${placement.placed.some((p) => p.how === "time") ? "location or time" : "location"}.`,
+                      placement.unplaced.length ? ` Not near the route or taken at another time: ${placement.unplaced.map((p) => p.name).join(", ")}.` : "",
+                      photoProblems.length ? ` Couldn't open ${photoProblems.join(", ")} (this browser can't read that format).` : "",
+                    ].join("")
+                  : "Photos from the activity pop up where you took them (from their location or time). They stay on this device."
+              }
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="btn btn-secondary btn-sm cursor-pointer">
+                  Add photos
+                  <input
+                    type="file"
+                    accept="image/*,.heic,.heif"
+                    multiple
+                    className="sr-only"
+                    onChange={async (e) => {
+                      const files = [...(e.target.files ?? [])];
+                      e.target.value = "";
+                      if (files.length) setPhotoProblems(await addPhotos(files));
+                    }}
+                  />
+                </label>
+                {photos.length > 0 && (
+                  <Segmented
+                    size="sm"
+                    label="Show photos"
+                    value={photosOn ? "on" : "off"}
+                    onChange={(v) => setPhotosOn(v === "on")}
+                    options={[
+                      { value: "on", label: "Show" },
+                      { value: "off", label: "Off" },
+                    ]}
+                  />
+                )}
+                {photos.map((p) => (
+                  <span key={p.id} className="relative inline-block">
+                    <PhotoThumb bitmap={p.bitmap} title={p.name} />
+                    <button
+                      type="button"
+                      aria-label={`Remove ${p.name}`}
+                      onClick={() => removePhoto(p.id)}
+                      className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-ink text-[11px] leading-none text-page"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </ControlRow>
+          )}
           <ControlRow label="3D buildings">
             <Segmented
               size="sm"
@@ -643,4 +738,17 @@ export function FlyoverPage() {
       <NextStep to="/export" label="Export video or poster" back={{ to: "/analysis", label: "Analysis" }} />
     </Page>
   );
+}
+
+/** A photo's thumbnail, drawn from its decoded bitmap. */
+function PhotoThumb({ bitmap, title }: { bitmap: ImageBitmap; title: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const c = ref.current;
+    if (!c) return;
+    const k = Math.max(c.width / bitmap.width, c.height / bitmap.height);
+    const ctx = c.getContext("2d")!;
+    ctx.drawImage(bitmap, (c.width - bitmap.width * k) / 2, (c.height - bitmap.height * k) / 2, bitmap.width * k, bitmap.height * k);
+  }, [bitmap]);
+  return <canvas ref={ref} width={80} height={80} title={title} className="h-10 w-10 rounded-md border border-grid object-cover" />;
 }

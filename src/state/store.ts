@@ -16,6 +16,8 @@ import type { Activity } from "../lib/parse/types";
 import { boundsOf } from "../lib/geo/geo";
 import { type Weather, fetchWeather } from "../lib/weather";
 import type { GhostRunner } from "../lib/playback/ghosts";
+import { type Photo, readPhoto } from "../lib/photos";
+import { HAZES, type Haze } from "../lib/map/sun";
 import { type TerrainGrid, gridPoints } from "../lib/geo/terrainGrid";
 
 export const SAMPLE_URL = "/samples/reservoir-loop.tcx.xml";
@@ -53,11 +55,11 @@ function storedPrivacy(): number {
   return DEFAULT_PRIVACY_RADIUS;
 }
 
-function storedStats(): { liveStats: LiveStat[]; endStats: EndStat[]; highlights: boolean; landmarks: boolean; buildings: boolean; sunLighting: boolean } {
+function storedStats(): { liveStats: LiveStat[]; endStats: EndStat[]; highlights: boolean; landmarks: boolean; buildings: boolean; sunLighting: boolean; haze: Haze } {
   // 3D buildings default to off where the device is Lite: extrusions are costly to draw.
   const buildingsDefault = resolveDetail(storedDetail()) !== "lite";
   try {
-    const v = JSON.parse(localStorage.getItem(STATS_KEY) ?? "null") as { liveStats?: unknown; endStats?: unknown; highlights?: unknown; landmarks?: unknown; buildings?: unknown; sunLighting?: unknown } | null;
+    const v = JSON.parse(localStorage.getItem(STATS_KEY) ?? "null") as { liveStats?: unknown; endStats?: unknown; highlights?: unknown; landmarks?: unknown; buildings?: unknown; sunLighting?: unknown; haze?: unknown } | null;
     if (v && Array.isArray(v.liveStats) && Array.isArray(v.endStats))
       return {
         liveStats: v.liveStats as LiveStat[],
@@ -66,11 +68,12 @@ function storedStats(): { liveStats: LiveStat[]; endStats: EndStat[]; highlights
         landmarks: v.landmarks !== false,
         buildings: typeof v.buildings === "boolean" ? v.buildings : buildingsDefault,
         sunLighting: v.sunLighting !== false,
+        haze: HAZES.includes(v.haze as Haze) ? (v.haze as Haze) : "auto",
       };
   } catch {
     // Storage unavailable or corrupt.
   }
-  return { liveStats: [...DEFAULT_LIVE], endStats: [...DEFAULT_END], highlights: true, landmarks: true, buildings: buildingsDefault, sunLighting: true };
+  return { liveStats: [...DEFAULT_LIVE], endStats: [...DEFAULT_END], highlights: true, landmarks: true, buildings: buildingsDefault, sunLighting: true, haze: "auto" };
 }
 
 function storedWeatherOn(): boolean {
@@ -127,6 +130,13 @@ interface State {
   ghostsOn: boolean;
   setGhosts(g: GhostRunner[] | null): void;
   setGhostsOn(on: boolean): void;
+  /** Photos added for the flyover (in memory only), placed on the route when shown. */
+  photos: Photo[];
+  photosOn: boolean;
+  /** Reads and adds photos; resolves with the names of any that couldn't be decoded. */
+  addPhotos(files: File[]): Promise<string[]>;
+  removePhoto(id: string): void;
+  setPhotosOn(on: boolean): void;
   loading: boolean;
   error: string | null;
   hoverIndex: number | null;
@@ -149,6 +159,8 @@ interface State {
   buildings: boolean;
   /** Light the terrain and buildings from where the sun was during the activity. */
   sunLighting: boolean;
+  /** Haze over the distance: "auto" follows the weather when it's on. */
+  haze: Haze;
   /** Chase camera distance (auto picks by sport). */
   cameraDistance: CameraDistance;
   setCameraDistance(d: CameraDistance): void;
@@ -169,7 +181,7 @@ interface State {
   setXAxis(x: "distance" | "time"): void;
   setLook(l: LookId): void;
   setCameraMode(m: CameraMode | "free"): void;
-  setVideoStats(patch: { liveStats?: LiveStat[]; endStats?: EndStat[]; highlights?: boolean; landmarks?: boolean; buildings?: boolean; sunLighting?: boolean }): void;
+  setVideoStats(patch: { liveStats?: LiveStat[]; endStats?: EndStat[]; highlights?: boolean; landmarks?: boolean; buildings?: boolean; sunLighting?: boolean; haze?: Haze }): void;
   reset(): void;
 }
 
@@ -295,6 +307,21 @@ export const useStore = create<State>((set, get) => {
     ghostsOn: true,
     setGhosts: (ghosts) => set({ ghosts, ghostsOn: true }),
     setGhostsOn: (ghostsOn) => set({ ghostsOn }),
+    photos: [],
+    photosOn: true,
+    async addPhotos(files) {
+      const images = files.filter((f) => f.type.startsWith("image/") || /\.(jpe?g|heic|heif|png|webp|avif)$/i.test(f.name));
+      const read = await Promise.all(images.map((f) => readPhoto(f).catch(() => null)));
+      const added = read.filter((p): p is Photo => !!p);
+      set((st) => ({ photos: [...st.photos, ...added], photosOn: true }));
+      return images.filter((_, k) => !read[k]).map((f) => f.name);
+    },
+    removePhoto(id) {
+      const p = get().photos.find((x) => x.id === id);
+      p?.bitmap.close();
+      set((st) => ({ photos: st.photos.filter((x) => x.id !== id) }));
+    },
+    setPhotosOn: (photosOn) => set({ photosOn }),
     setWeatherOn(on) {
       try {
         localStorage.setItem(WEATHER_KEY, on ? "1" : "0");
@@ -330,7 +357,8 @@ export const useStore = create<State>((set, get) => {
 
     async loadText(text, fileName) {
       // Ghosts belong to the activity they were picked for.
-      set({ loading: true, error: null, ghosts: null });
+      for (const p of get().photos) p.bitmap.close();
+      set({ loading: true, error: null, ghosts: null, photos: [] });
       try {
         const activities = await parseInWorker(text, fileName);
         // Default to the longest activity when a file holds several.
@@ -451,7 +479,7 @@ export const useStore = create<State>((set, get) => {
     setVideoStats(patch) {
       set(patch);
       try {
-        localStorage.setItem(STATS_KEY, JSON.stringify({ liveStats: get().liveStats, endStats: get().endStats, highlights: get().highlights, landmarks: get().landmarks, buildings: get().buildings, sunLighting: get().sunLighting }));
+        localStorage.setItem(STATS_KEY, JSON.stringify({ liveStats: get().liveStats, endStats: get().endStats, highlights: get().highlights, landmarks: get().landmarks, buildings: get().buildings, sunLighting: get().sunLighting, haze: get().haze }));
       } catch {
         // Not critical.
       }
@@ -470,6 +498,7 @@ export const useStore = create<State>((set, get) => {
         activities: [],
         activity: null,
         ghosts: null,
+        photos: [],
         settings: null,
         analysis: null,
         dem: null,
