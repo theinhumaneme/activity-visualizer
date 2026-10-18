@@ -349,7 +349,8 @@ export function ExportPage() {
               ) : (
                 <video src={result.url} controls playsInline className="max-h-[62dvh] max-w-full rounded-control bg-black" />
               )}
-              <a href={result.url} download={fileName} className="btn btn-primary btn-lg mt-5 w-full max-w-sm">
+              <ShareButton blob={result.blob} fileName={fileName} title={a.settings.name} />
+              <a href={result.url} download={fileName} className={`btn btn-lg mt-3 w-full max-w-sm ${canShareFiles ? "btn-secondary" : "btn-primary mt-5"}`}>
                 <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                   <path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" />
                 </svg>
@@ -412,5 +413,47 @@ export function ExportPage() {
       </div>
       <NextStep to="/" label="Visualize another activity" back={{ to: "/flyover", label: "Flyover" }} />
     </Page>
+  );
+}
+
+/** Whether this browser can hand a file to other apps (phones, mostly). */
+const canShareFiles =
+  typeof navigator !== "undefined" && typeof navigator.canShare === "function" && navigator.canShare({ files: [new File([""], "probe.mp4", { type: "video/mp4" })] });
+
+/**
+ * Opens the system share sheet with the rendered file attached, so it goes straight to Instagram,
+ * WhatsApp, Photos… without a download-then-upload round trip. Hidden where files can't be shared.
+ */
+function ShareButton({ blob, fileName, title }: { blob: Blob; fileName: string; title: string }) {
+  const [error, setError] = useState<string | null>(null);
+  if (!canShareFiles) return null;
+  const share = async () => {
+    setError(null);
+    const file = new File([blob], fileName, { type: blob.type });
+    if (!navigator.canShare({ files: [file] })) {
+      setError("This browser can't share this file; use Download instead.");
+      return;
+    }
+    try {
+      await navigator.share({ files: [file], title });
+    } catch (err) {
+      // Closing the share sheet isn't an error worth showing.
+      if (!(err instanceof DOMException && err.name === "AbortError")) setError("Sharing didn't work; use Download instead.");
+    }
+  };
+  return (
+    <>
+      <button type="button" onClick={share} className="btn btn-primary btn-lg mt-5 w-full max-w-sm">
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M12 15V4m0 0L8 8m4-4 4 4M6 12v7a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-7" />
+        </svg>
+        Share
+      </button>
+      {error && (
+        <p role="status" className="mt-2 text-center text-sm text-ink-2">
+          {error}
+        </p>
+      )}
+    </>
   );
 }
