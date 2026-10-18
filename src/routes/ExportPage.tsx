@@ -52,6 +52,9 @@ export function ExportPage() {
   const landmarks = useStore((s) => s.landmarks);
   const buildings = useStore((s) => s.buildings);
   const weather = useStore((s) => s.weather);
+  const ghosts = useStore((s) => s.ghosts);
+  const ghostsOn = useStore((s) => s.ghostsOn);
+  const setGhostsOn = useStore((s) => s.setGhostsOn);
   const weatherOn = useStore((s) => s.weatherOn);
   const weatherStatus = useStore((s) => s.weatherStatus);
   const setWeatherOn = useStore((s) => s.setWeatherOn);
@@ -131,6 +134,7 @@ export function ExportPage() {
       landmarks,
       buildings,
       weather,
+      ghosts: ghostsOn ? ghosts : null,
       sunLighting,
       endCard,
       fps,
@@ -314,6 +318,12 @@ export function ExportPage() {
                         <input type="checkbox" checked={buildings} onChange={(e) => setVideoStats({ buildings: e.target.checked })} />
                         3D buildings in cities
                       </label>
+                      {ghosts && ghosts.length > 0 && (
+                        <label className="flex items-center gap-2.5">
+                          <input type="checkbox" checked={ghostsOn} onChange={(e) => setGhostsOn(e.target.checked)} />
+                          Ghost race against {ghosts.map((g) => g.label).join(" and ")}
+                        </label>
+                      )}
                       {!a.activity.routeOnly && (
                         <label className="flex items-center gap-2.5">
                           <input

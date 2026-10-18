@@ -12,6 +12,8 @@ import { DARK_STYLE_URL } from "../../lib/map/style";
 import { distanceText, gapText, shortDate, sportPlural } from "./format";
 import { useReducedMotion } from "./hooks";
 import { mapPixelRatio, resolveDetail } from "../../lib/map/detail";
+import { useNavigate } from "react-router";
+import { useLibrary } from "../../state/library";
 import { useStore } from "../../state/store";
 
 const MAX_RUNNERS = 25;
@@ -216,6 +218,31 @@ export function Race({ groups, byId, radius, units }: { groups: RouteGroup[]; by
     return () => cancelAnimationFrame(raf);
   }, [playing, speed, total, draw]);
 
+  // The latest run in the 3D flyover, chased by your best and your previous attempt.
+  const navigate = useNavigate();
+  const [flying, setFlying] = useState(false);
+  async function fly() {
+    const latest = ghosts[ghosts.length - 1];
+    const past = ghosts.slice(0, -1);
+    if (!latest || !past.length) return;
+    const best = past.reduce((x, y) => (finishTime(y.track) < finishTime(x.track) ? y : x));
+    const previous = past[past.length - 1];
+    // "Jul 26": short enough to sit beside a dot on the map.
+    const day = (r: LibraryRecord) =>
+      new Date(r.startTime + (r.utcOffsetMin ?? 0) * 60000).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: r.utcOffsetMin === undefined ? undefined : "UTC" });
+    const picks = [
+      { g: best, label: `Best · ${day(best.record)}`, color: "#ffd166" },
+      ...(previous !== best ? [{ g: previous, label: `Last · ${day(previous.record)}`, color: "#8fd3ff" }] : []),
+    ];
+    setPlaying(false);
+    setFlying(true);
+    const ok = await useLibrary.getState().open(latest.id);
+    setFlying(false);
+    if (!ok) return;
+    useStore.getState().setGhosts(picks.map((p) => ({ id: p.g.id, label: p.label, color: p.color, track: p.g.track })));
+    navigate("/flyover");
+  }
+
   const board = useMemo(() => standings(ghosts, tau), [ghosts, tau]);
   const ghostById = useMemo(() => new Map(ghosts.map((g) => [g.id, g])), [ghosts]);
 
@@ -308,6 +335,15 @@ export function Race({ groups, byId, radius, units }: { groups: RouteGroup[]; by
         </div>
 
       </div>
+
+      {ghosts.length > 1 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => void fly()} disabled={flying}>
+            {flying ? "Opening…" : "Fly it in 3D"}
+          </button>
+          <span className="text-sm text-ink-2">Your latest run in the flyover, chased by your best and your previous attempt. Export it as a video from there.</span>
+        </div>
+      )}
 
       {group && (
         <p className="text-xs text-muted">

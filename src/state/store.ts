@@ -15,6 +15,7 @@ import { type MapDetail, resolveDetail } from "../lib/map/detail";
 import type { Activity } from "../lib/parse/types";
 import { boundsOf } from "../lib/geo/geo";
 import { type Weather, fetchWeather } from "../lib/weather";
+import type { GhostRunner } from "../lib/playback/ghosts";
 import { type TerrainGrid, gridPoints } from "../lib/geo/terrainGrid";
 
 export const SAMPLE_URL = "/samples/reservoir-loop.tcx.xml";
@@ -121,6 +122,11 @@ interface State {
   weather: Weather | null;
   weatherStatus: "idle" | "loading" | "done" | "error";
   setWeatherOn(on: boolean): void;
+  /** Earlier runs of this route to race in the flyover (set from the library's race). */
+  ghosts: GhostRunner[] | null;
+  ghostsOn: boolean;
+  setGhosts(g: GhostRunner[] | null): void;
+  setGhostsOn(on: boolean): void;
   loading: boolean;
   error: string | null;
   hoverIndex: number | null;
@@ -285,6 +291,10 @@ export const useStore = create<State>((set, get) => {
     weatherOn: storedWeatherOn(),
     weather: null,
     weatherStatus: "idle",
+    ghosts: null,
+    ghostsOn: true,
+    setGhosts: (ghosts) => set({ ghosts, ghostsOn: true }),
+    setGhostsOn: (ghostsOn) => set({ ghostsOn }),
     setWeatherOn(on) {
       try {
         localStorage.setItem(WEATHER_KEY, on ? "1" : "0");
@@ -319,7 +329,8 @@ export const useStore = create<State>((set, get) => {
     },
 
     async loadText(text, fileName) {
-      set({ loading: true, error: null });
+      // Ghosts belong to the activity they were picked for.
+      set({ loading: true, error: null, ghosts: null });
       try {
         const activities = await parseInWorker(text, fileName);
         // Default to the longest activity when a file holds several.
@@ -458,6 +469,7 @@ export const useStore = create<State>((set, get) => {
         fileName: null,
         activities: [],
         activity: null,
+        ghosts: null,
         settings: null,
         analysis: null,
         dem: null,

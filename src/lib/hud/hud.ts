@@ -7,6 +7,7 @@
 
 import type { Analysis } from "../analysis/types";
 import { atIndex } from "../analysis/series";
+import { type GhostRunner, gapWords, ghostsAt } from "../playback/ghosts";
 import {
   formatClock,
   formatDate,
@@ -71,6 +72,8 @@ export interface HudOptions {
   highlights?: boolean;
   /** Weather during the activity, for the temperature / weather stats (when the user turned it on). */
   weather?: Weather | null;
+  /** Earlier runs of the route to race (ghost race). */
+  ghosts?: readonly GhostRunner[] | null;
 }
 
 interface Palette {
@@ -110,6 +113,7 @@ export function drawHud(ctx: CanvasRenderingContext2D, W: number, H: number, a: 
 
   // No full-frame scrims (they read as a black border): numbers sit on glass panels, and loose
   // text gets a soft shadow so it holds up on any basemap.
+  if (o.project && o.ghosts?.length && !a.privacy.empty) drawGhosts(ctx, s, a, f, o, P);
   if (o.project && !a.privacy.empty) drawMarkers(ctx, s, a, f, o);
   if (f.fx.title > 0) drawTitle(ctx, W, H, s, a, f.fx.title, o, P, titleFont, portrait, safeTop, safeBottom);
   if (f.fx.start > 0 && o.project) {
@@ -235,6 +239,48 @@ function drawMarkers(ctx: CanvasRenderingContext2D, s: number, a: Analysis, f: F
   ctx.strokeStyle = "#07080a";
   ctx.stroke();
   ctx.restore();
+}
+
+/**
+ * Ghost runners: a translucent dot per earlier run where it was at your moving time, with a small
+ * label saying how far ahead or behind it is at the same point of the route.
+ */
+function drawGhosts(ctx: CanvasRenderingContext2D, s: number, a: Analysis, f: FrameState, o: HudOptions, P: Palette) {
+  const m = f.fx.marker;
+  if (m <= 0 || f.shot === "pullback" || f.shot === "end") return;
+  const u = 2 * s;
+  for (const { g, at, gap } of ghostsAt(a, o.ghosts!, f.index)) {
+    const p = at && o.project!(at);
+    if (!p) continue;
+    ctx.save();
+    ctx.globalAlpha = 0.85 * m;
+    ctx.beginPath();
+    ctx.arc(p[0], p[1], 6 * u, 0, Math.PI * 2);
+    ctx.fillStyle = g.color;
+    ctx.fill();
+    ctx.lineWidth = 1.5 * u;
+    ctx.strokeStyle = "#07080a";
+    ctx.stroke();
+    // Label to the right of the dot: the run, then the gap.
+    const label = g.label.toUpperCase();
+    const words = gapWords(gap);
+    ctx.font = `700 ${13 * s}px ${FONT_SANS}`;
+    const lw = ctx.measureText(label).width + label.length * 13 * s * 0.08;
+    ctx.font = `600 ${17 * s}px ${FONT_SANS}`;
+    const ww = ctx.measureText(words).width;
+    const h = 34 * s;
+    const w = 14 * s + lw + 10 * s + ww + 14 * s;
+    const x = p[0] + 12 * u;
+    const y = p[1] - h / 2;
+    ctx.globalAlpha = 0.95 * m * f.fx.hud;
+    panel(ctx, x, y, w, h, h / 2, P);
+    spaced(ctx, label, x + 14 * s, y + h * 0.63, 13 * s, g.color, 700);
+    ctx.fillStyle = P.hi;
+    ctx.font = `600 ${17 * s}px ${FONT_SANS}`;
+    ctx.textAlign = "left";
+    ctx.fillText(words, x + 14 * s + lw + 10 * s, y + h * 0.67);
+    ctx.restore();
+  }
 }
 
 /** Soft shadow for text drawn straight on the map. */
@@ -532,6 +578,15 @@ function drawFinish(ctx: CanvasRenderingContext2D, W: number, s: number, a: Anal
     ctx.font = `${titleWeight(titleFont)} ${88 * s}px ${titleFont}`;
     tabular(ctx, formatDuration(a.summary.elapsed), W / 2, y + 92 * s, "center");
     spaced(ctx, `${formatDuration(a.summary.moving)} MOVING`, W / 2, y + 128 * s, 17 * s, P.mid, 600, "center");
+    // Ghost race result, one line per ghost, by moving time.
+    if (o.ghosts?.length) {
+      ghostsAt(a, o.ghosts, a.n - 1).forEach(({ g, gap }, k) => {
+        const secs = Math.round(Math.abs(gap));
+        const t = secs < 60 ? `${secs} S` : formatDuration(secs);
+        const text = secs < 1 ? `LEVEL WITH ${g.label.toUpperCase()}` : `${t} ${gap < 0 ? "FASTER" : "SLOWER"} THAN ${g.label.toUpperCase()}`;
+        spaced(ctx, text, W / 2, y + (160 + 28 * k) * s, 17 * s, g.color, 700, "center");
+      });
+    }
   }
   ctx.restore();
 }

@@ -61,6 +61,9 @@ export function FlyoverPage() {
   const buildings = useStore((s) => s.buildings);
   const weather = useStore((s) => s.weather);
   const weatherOn = useStore((s) => s.weatherOn);
+  const ghosts = useStore((s) => s.ghosts);
+  const ghostsOn = useStore((s) => s.ghostsOn);
+  const setGhostsOn = useStore((s) => s.setGhostsOn);
   const weatherStatus = useStore((s) => s.weatherStatus);
   const setWeatherOn = useStore((s) => s.setWeatherOn);
   const sunLighting = useStore((s) => s.sunLighting);
@@ -124,6 +127,7 @@ export function FlyoverPage() {
         endStats,
         highlights,
         weather,
+        ghosts: ghostsOn ? ghosts : null,
         attribution: "",
         // Keep the stats clear of the map's own attribution control.
         bottomInset: 40 * dpr,
@@ -134,7 +138,7 @@ export function FlyoverPage() {
         },
       });
     },
-    [a, look, routeColor, exaggeration, liveStats, endStats, highlights, weather],
+    [a, look, routeColor, exaggeration, liveStats, endStats, highlights, weather, ghosts, ghostsOn],
   );
 
   /**
@@ -544,6 +548,20 @@ export function FlyoverPage() {
               ]}
             />
           </ControlRow>
+          {ghosts && ghosts.length > 0 && (
+            <ControlRow label="Ghost race" hint={`Racing ${ghosts.map((g) => g.label).join(" and ")} by moving time.`}>
+              <Segmented
+                size="sm"
+                label="Ghost race"
+                value={ghostsOn ? "on" : "off"}
+                onChange={(v) => setGhostsOn(v === "on")}
+                options={[
+                  { value: "on", label: "Show" },
+                  { value: "off", label: "Off" },
+                ]}
+              />
+            </ControlRow>
+          )}
           {!a.activity.routeOnly && (
             <ControlRow
               label="Weather"

@@ -9,6 +9,7 @@ import { type ColorMode } from "../map/route";
 import { DETAIL, type DetailLevel, applyTerrainQuality } from "../map/detail";
 import { addBuildingLayer, addLandmarkLayers } from "../map/landmarks";
 import type { Weather } from "../weather";
+import type { GhostRunner } from "../playback/ghosts";
 import { activitySun, applySunLighting } from "../map/sun";
 import { LOOKS, type LookId, flyoverStyle } from "../map/style";
 import { planTiles, preloadTiles, releaseTiles, reloadFailedTiles, retryTiles, tileHealth } from "../map/tileFetch";
@@ -39,6 +40,8 @@ export interface ExportOptions {
   buildings?: boolean;
   /** Weather during the activity (when the user turned it on), for the weather stats. */
   weather?: Weather | null;
+  /** Earlier runs of the route to race (ghost race), when set from the library. */
+  ghosts?: readonly GhostRunner[] | null;
   /** Light terrain and buildings from the sun's real position (default on). */
   sunLighting?: boolean;
   /** Multiplier on the chase camera distance. */
@@ -216,6 +219,7 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
       endStats: opts.endStats,
       highlights: opts.highlights,
       weather: opts.weather,
+      ghosts: opts.ghosts,
       endCard: opts.endCard,
       attribution,
       exaggeration: opts.exaggeration,
