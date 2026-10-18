@@ -24,32 +24,44 @@ export async function fetchWeather(lat: number, lon: number, startMs: number, en
   const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
   const la = coarse(lat);
   const lo = coarse(lon);
-  const key = `rv:weather:${la},${lo},${day(startMs)},${day(endMs)}`;
+  // v2: hours without data are dropped (v1 kept them as nulls).
+  const key = `rv:weather2:${la},${lo},${day(startMs)},${day(endMs)}`;
   try {
     const hit = sessionStorage.getItem(key);
     if (hit) return JSON.parse(hit) as Weather;
   } catch {
     // Storage unavailable.
   }
-  // The archive lags a few days behind; recent activities come from the forecast API's past days.
-  const recent = Date.now() - startMs < 80 * DAY;
-  const base = recent ? "https://api.open-meteo.com/v1/forecast" : "https://archive-api.open-meteo.com/v1/archive";
-  const url = `${base}?latitude=${la}&longitude=${lo}&start_date=${day(startMs - DAY)}&end_date=${day(endMs + DAY)}&hourly=${HOURLY.join(",")}&timezone=UTC&timeformat=unixtime&wind_speed_unit=kmh`;
-  const res = await fetch(url, { signal });
-  if (!res.ok) return null;
-  const j = (await res.json()) as { hourly?: Record<string, number[]> };
-  const h = j.hourly;
-  if (!h?.time?.length) return null;
-  const w: Weather = {
-    time: h.time.map((t) => t * 1000),
-    temp: h.temperature_2m,
-    feelsLike: h.apparent_temperature,
-    humidity: h.relative_humidity_2m,
-    precip: h.precipitation,
-    windSpeed: h.wind_speed_10m,
-    windDir: h.wind_direction_10m,
-    code: h.weather_code,
-  };
+  // The archive covers everything but the last couple of days; the forecast API only keeps recent
+  // weeks (older hours come back empty). Try the likelier one, then the other.
+  const recent = Date.now() - startMs < 3 * DAY;
+  const bases = ["https://archive-api.open-meteo.com/v1/archive", "https://api.open-meteo.com/v1/forecast"];
+  if (recent) bases.reverse();
+  let w: Weather | null = null;
+  for (const base of bases) {
+    const url = `${base}?latitude=${la}&longitude=${lo}&start_date=${day(startMs - DAY)}&end_date=${day(endMs + DAY)}&hourly=${HOURLY.join(",")}&timezone=UTC&timeformat=unixtime&wind_speed_unit=kmh`;
+    const res = await fetch(url, { signal });
+    if (!res.ok) continue;
+    const h = ((await res.json()) as { hourly?: Record<string, (number | null)[]> }).hourly;
+    if (!h?.time?.length) continue;
+    // Keep only the hours with data.
+    const keep = h.time.map((_, k) => typeof h.temperature_2m?.[k] === "number");
+    const col = (name: string) => (h[name] ?? []).filter((_, k) => keep[k]).map((v) => v ?? NaN);
+    const time = col("time").map((t) => t * 1000);
+    if (!time.some((t) => t >= startMs - 3600000 && t <= endMs + 3600000)) continue;
+    w = {
+      time,
+      temp: col("temperature_2m"),
+      feelsLike: col("apparent_temperature"),
+      humidity: col("relative_humidity_2m"),
+      precip: col("precipitation"),
+      windSpeed: col("wind_speed_10m"),
+      windDir: col("wind_direction_10m"),
+      code: col("weather_code"),
+    };
+    break;
+  }
+  if (!w) return null;
   try {
     sessionStorage.setItem(key, JSON.stringify(w));
   } catch {

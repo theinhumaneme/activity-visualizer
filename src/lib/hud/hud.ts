@@ -391,7 +391,7 @@ function liveItems(a: Analysis, i: number, chosen: readonly LiveStat[] = DEFAULT
       out.push({ label: "POWER", value: cnt ? String(Math.round(sum / cnt)) : "—", unit: "W" });
     } else if (key === "temp" && weather) {
       const t = formatTemp(weatherAt(weather, a.samples[k].time).temp, u);
-      out.push({ label: "TEMP", value: t.replace(/°[CF]$/, "°"), unit: u === "metric" ? "C" : "F" });
+      out.push({ label: "TEMP", value: t.replace(/°[CF]$/, "°"), unit: t === "—" ? undefined : u === "metric" ? "C" : "F" });
     }
   }
   return out;
