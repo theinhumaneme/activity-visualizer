@@ -5,6 +5,8 @@ import { ControlRow, Failure, Loading, NextStep, Page, Segmented } from "../comp
 import { formatDuration } from "../lib/format/format";
 import { sampler } from "../lib/geo/terrainGrid";
 import { drawHud, loadHudFonts } from "../lib/hud/hud";
+import { withWeather, withoutWeather } from "../lib/hud/stats";
+import { formatTemp, weatherSummary, weatherText } from "../lib/weather";
 import { COLOR_MODES, modeAvailable } from "../lib/map/route";
 import { DETAIL, MAP_DETAILS, applyTerrainQuality, resolveDetail } from "../lib/map/detail";
 import { addBuildingLayer, addLandmarkLayers, setBuildingsVisible, setLandmarksVisible } from "../lib/map/landmarks";
@@ -58,6 +60,9 @@ export function FlyoverPage() {
   const landmarks = useStore((s) => s.landmarks);
   const buildings = useStore((s) => s.buildings);
   const weather = useStore((s) => s.weather);
+  const weatherOn = useStore((s) => s.weatherOn);
+  const weatherStatus = useStore((s) => s.weatherStatus);
+  const setWeatherOn = useStore((s) => s.setWeatherOn);
   const sunLighting = useStore((s) => s.sunLighting);
   const cameraDistance = useStore((s) => s.cameraDistance);
   const mapDetail = useStore((s) => s.mapDetail);
@@ -539,6 +544,35 @@ export function FlyoverPage() {
               ]}
             />
           </ControlRow>
+          {!a.activity.routeOnly && (
+            <ControlRow
+              label="Weather"
+              hint={(() => {
+                if (!weatherOn) return "Fetched from Open-Meteo for the area (location rounded to ~10 km) and the date.";
+                if (weatherStatus === "loading") return "Getting the weather…";
+                if (weatherStatus === "error" || (weatherStatus === "done" && !weather)) return "No weather found for this activity.";
+                if (!weather) return undefined;
+                const w = weatherSummary(weather, a.samples[0].time, a.samples[a.n - 1].time);
+                return `${formatTemp(w.temp, a.settings.units)}, ${weatherText(w.code).toLowerCase()}: temperature in the live stats, conditions on the end card.`;
+              })()}
+            >
+              <Segmented
+                size="sm"
+                label="Weather"
+                value={weatherOn && (liveStats.includes("temp") || endStats.includes("weather")) ? "on" : "off"}
+                onChange={(v) => {
+                  if (v === "on") {
+                    if (!weatherOn) setWeatherOn(true);
+                    setVideoStats(withWeather(a, liveStats, endStats));
+                  } else setVideoStats(withoutWeather(liveStats, endStats));
+                }}
+                options={[
+                  { value: "on", label: "Show" },
+                  { value: "off", label: "Off" },
+                ]}
+              />
+            </ControlRow>
+          )}
           <ControlRow label="3D buildings">
             <Segmented
               size="sm"

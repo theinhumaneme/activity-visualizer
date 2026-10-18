@@ -2,7 +2,7 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 import { ColorModePicker } from "../components/ColorModePicker";
 import { Card, Check, ChipSelect, ControlRow, Failure, GroupHeading, NextStep, Page, Segmented, Spinner } from "../components/ui";
 import { type Aspect, type ExportProgress, type ExportResult, exportDuration, exportSize, renderPoster, renderVideo, videoBitrate } from "../lib/export/render";
-import { MAX_END, MAX_LIVE, endOptions, liveOptions } from "../lib/hud/stats";
+import { MAX_END, MAX_LIVE, endOptions, liveOptions, withWeather, withoutWeather } from "../lib/hud/stats";
 import { drawExportPreview } from "../lib/export/preview";
 import { formatDuration } from "../lib/format/format";
 import { loadHudFonts } from "../lib/hud/hud";
@@ -52,6 +52,9 @@ export function ExportPage() {
   const landmarks = useStore((s) => s.landmarks);
   const buildings = useStore((s) => s.buildings);
   const weather = useStore((s) => s.weather);
+  const weatherOn = useStore((s) => s.weatherOn);
+  const weatherStatus = useStore((s) => s.weatherStatus);
+  const setWeatherOn = useStore((s) => s.setWeatherOn);
   const sunLighting = useStore((s) => s.sunLighting);
   const cameraDistance = useStore((s) => s.cameraDistance);
   const mapDetail = useStore((s) => s.mapDetail);
@@ -311,6 +314,25 @@ export function ExportPage() {
                         <input type="checkbox" checked={buildings} onChange={(e) => setVideoStats({ buildings: e.target.checked })} />
                         3D buildings in cities
                       </label>
+                      {!a.activity.routeOnly && (
+                        <label className="flex items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            checked={weatherOn && (liveStats.includes("temp") || endStats.includes("weather"))}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                if (!weatherOn) setWeatherOn(true);
+                                setVideoStats(withWeather(a, liveStats, endStats));
+                              } else setVideoStats(withoutWeather(liveStats, endStats));
+                            }}
+                          />
+                          <span>
+                            Weather (temperature live, conditions at the end)
+                            {weatherOn && weatherStatus === "loading" && <span className="text-muted"> · loading…</span>}
+                            {weatherOn && weatherStatus === "error" && <span className="text-muted"> · not available</span>}
+                          </span>
+                        </label>
+                      )}
                       <label className="flex items-center gap-2.5">
                         <input type="checkbox" checked={sunLighting} onChange={(e) => setVideoStats({ sunLighting: e.target.checked })} />
                         Light the map from the real sun (date and time of the activity)

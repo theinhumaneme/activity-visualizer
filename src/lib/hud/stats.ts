@@ -61,3 +61,20 @@ export const endOptions = (a: Analysis, w?: Weather | null) => END.filter((s) =>
 /** The chosen stats this activity has, in catalog order (so panels read the same way every time). */
 export const pickLive = (a: Analysis, chosen: readonly LiveStat[], w?: Weather | null) => LIVE.filter((s) => chosen.includes(s.key) && s.has(a, w)).map((s) => s.key);
 export const pickEnd = (a: Analysis, chosen: readonly EndStat[], w?: Weather | null) => END.filter((s) => chosen.includes(s.key) && s.has(a, w)).map((s) => s.key);
+
+/**
+ * Adds weather to the chosen stats (temperature live, conditions on the end card), making room by
+ * dropping the last stat shown when a panel is full. Assumes weather data will be there.
+ */
+export function withWeather(a: Analysis, live: readonly LiveStat[], end: readonly EndStat[]) {
+  const shown = (keys: string[], max: number) => (keys.length >= max ? keys.slice(0, max - 1) : keys);
+  const anyWeather = {} as Weather;
+  const l = shown(pickLive(a, live, anyWeather).filter((k) => k !== "temp"), MAX_LIVE) as LiveStat[];
+  const e = shown(pickEnd(a, end, anyWeather).filter((k) => k !== "weather"), MAX_END) as EndStat[];
+  return { liveStats: [...l, "temp"] as LiveStat[], endStats: [...e, "weather"] as EndStat[] };
+}
+
+export const withoutWeather = (live: readonly LiveStat[], end: readonly EndStat[]) => ({
+  liveStats: live.filter((k) => k !== "temp"),
+  endStats: end.filter((k) => k !== "weather"),
+});
