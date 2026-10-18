@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { FEATURE_ART } from "../components/FeatureArt";
 import { SamplePreview } from "../components/SamplePreview";
@@ -9,10 +9,120 @@ import { useStore } from "../state/store";
 
 const CAPABILITIES: { title: string; text: string; art: keyof typeof FEATURE_ART }[] = [
   { title: "Check your data", text: "Gaps, GPS jumps and broken altitude found and fixed before any charts.", art: "check" },
-  { title: "Analyze every stretch", text: "Splits, pace, heart-rate zones, best efforts and efficiency, linked to the map.", art: "analyze" },
-  { title: "Fly over in 3D", text: "Your route over satellite imagery and real terrain.", art: "fly" },
-  { title: "Export to share", text: "A Strava-style video or poster, rendered on your device.", art: "export" },
+  { title: "Analyze every stretch", text: "Splits, pace, heart-rate and power zones, best efforts and climbs, linked to the map.", art: "analyze" },
+  { title: "Fly over in 3D", text: "Your route over high-resolution terrain, lit by the real sun, with your photos along the way.", art: "fly" },
+  { title: "Export to share", text: "A video up to 4K or a poster, made on your device and sent straight to your apps.", art: "export" },
 ];
+
+type Icon = "terrain" | "camera" | "chart" | "film" | "library" | "phone";
+
+/** Everything else the app does, grouped by what it's for. */
+const FEATURES: { icon: Icon; title: string; items: string[] }[] = [
+  {
+    icon: "terrain",
+    title: "A map worth watching",
+    items: [
+      "High-resolution 3D terrain, down to 1 m where open lidar exists",
+      "Sky, light and haze from the real sun at your time of day",
+      "Peaks with their heights, landmarks and 3D city buildings",
+      "Seven looks, from satellite to blueprint",
+    ],
+  },
+  {
+    icon: "camera",
+    title: "Your story along the route",
+    items: [
+      "Your photos pause the flyover where you took them, as collages",
+      "Race your best and last attempt as ghosts in 3D",
+      "Fastest mile, biggest climb and other highlights on the map",
+      "The weather that day, if you want it",
+    ],
+  },
+  {
+    icon: "chart",
+    title: "Analysis that goes deep",
+    items: [
+      "Cycling power: normalized power, training stress, zones and power curve",
+      "Heart-rate zones, decoupling and efficiency",
+      "Reps and recoveries detected in interval sessions",
+      "Grade-adjusted pace and every climb",
+    ],
+  },
+  {
+    icon: "film",
+    title: "Videos made to share",
+    items: [
+      "720p, 1080p or 4K; portrait, square or landscape",
+      "From 15 seconds to 5 minutes, with the stats you choose",
+      "Chase, drone, orbit and more camera moves",
+      "Share to your apps in one tap, or save a poster",
+    ],
+  },
+  {
+    icon: "library",
+    title: "A library of everything",
+    items: [
+      "Drop a whole Strava export: hundreds of files at once",
+      "A heatmap of everywhere you've been",
+      "Progress, records and a yearly recap",
+      "Kept in this browser for your next visit",
+    ],
+  },
+  {
+    icon: "phone",
+    title: "An app, if you like",
+    items: [
+      "Install it to your home screen or desktop",
+      "Opens offline once installed (maps still need a connection)",
+      "Open or share GPX and TCX files straight into it",
+      "Your files are never uploaded",
+    ],
+  },
+];
+
+/** Line icons for the feature groups (24 px grid, currentColor). */
+function FeatureIcon({ icon }: { icon: Icon }) {
+  const paths: Record<Icon, ReactNode> = {
+    terrain: (
+      <>
+        <path d="m3 19 6-10 4 6 2.5-3.5L21 19Z" />
+        <circle cx="17" cy="6" r="2" />
+      </>
+    ),
+    camera: (
+      <>
+        <path d="M4 8h3l1.5-2h7L17 8h3v11H4Z" />
+        <circle cx="12" cy="13" r="3.5" />
+      </>
+    ),
+    chart: <path d="M4 20V4m0 16h16M8 16l3.5-5 3 3L20 7" />,
+    film: (
+      <>
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <path d="m10 9 5 3-5 3Z" />
+      </>
+    ),
+    library: (
+      <>
+        <rect x="4" y="4" width="7" height="7" rx="1.5" />
+        <rect x="13" y="4" width="7" height="7" rx="1.5" />
+        <rect x="4" y="13" width="7" height="7" rx="1.5" />
+        <rect x="13" y="13" width="7" height="7" rx="1.5" />
+      </>
+    ),
+    phone: (
+      <>
+        <rect x="7" y="3" width="10" height="18" rx="2.5" />
+        <path d="M11 18h2" />
+      </>
+    ),
+  };
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      {paths[icon]}
+    </svg>
+  );
+}
 
 /** Loose terrain contours for the hero backdrop, centered up and to the right. */
 const BACKDROP_CONTOURS = Array.from({ length: 11 }, (_, k) => {
@@ -217,6 +327,33 @@ export function UploadPage() {
               );
             })}
           </ol>
+        </section>
+
+        <section aria-labelledby="everything" className="mt-16 sm:mt-20">
+          <h2 id="everything" className="text-section font-semibold tracking-[-0.01em]">
+            Everything in it
+          </h2>
+          <p className="mt-1.5 max-w-2xl text-[15px] leading-relaxed text-ink-2">Free, open source, and all of it runs in your browser.</p>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {FEATURES.map((f) => (
+              <div key={f.title} className="min-w-0 rounded-card border border-grid bg-surface p-5">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/12 text-accent-ink">
+                    <FeatureIcon icon={f.icon} />
+                  </span>
+                  <h3 className="font-semibold">{f.title}</h3>
+                </div>
+                <ul className="mt-3.5 space-y-2 text-[15px] leading-snug text-ink-2">
+                  {f.items.map((item) => (
+                    <li key={item} className="flex gap-2.5">
+                      <span aria-hidden className="mt-[0.55em] h-1 w-1 shrink-0 rounded-full bg-accent" />
+                      <span className="min-w-0">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
         </section>
 
         <details className="group mt-12 max-w-3xl border-t border-grid pt-5 text-[15px] text-ink-2">
