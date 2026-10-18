@@ -1,5 +1,6 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { ColorModePicker } from "../components/ColorModePicker";
+import { PhotoPicker } from "../components/PhotoPicker";
 import { Card, Check, ChipSelect, ControlRow, Failure, GroupHeading, NextStep, Page, Segmented, Spinner } from "../components/ui";
 import { type Aspect, type ExportProgress, type ExportResult, type Resolution, exportDuration, exportSize, renderPoster, renderVideo, videoBitrate } from "../lib/export/render";
 import { MAX_END, MAX_LIVE, endOptions, liveOptions, withWeather, withoutWeather } from "../lib/hud/stats";
@@ -59,7 +60,6 @@ export function ExportPage() {
   const ghosts = useStore((s) => s.ghosts);
   const photos = useStore((s) => s.photos);
   const photosOn = useStore((s) => s.photosOn);
-  const setPhotosOn = useStore((s) => s.setPhotosOn);
   const placedPhotos = useMemo(() => placePhotos(a, photos).placed, [a, photos]);
   const ghostsOn = useStore((s) => s.ghostsOn);
   const setGhostsOn = useStore((s) => s.setGhostsOn);
@@ -304,6 +304,7 @@ export function ExportPage() {
                   >
                     <Segmented size="sm" label="Route playback length" value={String(length)} onChange={(v) => setLength(Number(v))} options={CHASE_LENGTHS.map((l) => ({ value: String(l), label: lengthLabel(l) }))} />
                   </ControlRow>
+                  <PhotoPicker a={a} />
                   <ControlRow label="Haze" hint={haze === "auto" ? "The look's own, or from the weather when it's on." : undefined}>
                     <Segmented
                       size="sm"
@@ -347,12 +348,6 @@ export function ExportPage() {
                         <input type="checkbox" checked={buildings} onChange={(e) => setVideoStats({ buildings: e.target.checked })} />
                         3D buildings in cities
                       </label>
-                      {placedPhotos.length > 0 && (
-                        <label className="flex items-center gap-2.5">
-                          <input type="checkbox" checked={photosOn} onChange={(e) => setPhotosOn(e.target.checked)} />
-                          Your photos where you took them ({placedPhotos.length}): the flyover pauses while each one fills the screen
-                        </label>
-                      )}
                       {ghosts && ghosts.length > 0 && (
                         <label className="flex items-center gap-2.5">
                           <input type="checkbox" checked={ghostsOn} onChange={(e) => setGhostsOn(e.target.checked)} />
