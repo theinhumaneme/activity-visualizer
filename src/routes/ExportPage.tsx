@@ -9,6 +9,7 @@ import { loadHudFonts } from "../lib/hud/hud";
 import { MAP_DETAILS, resolveDetail } from "../lib/map/detail";
 import { HAZES } from "../lib/map/sun";
 import { placePhotos } from "../lib/photos";
+import { estimatePhotoSeconds } from "../lib/playback/photoStops";
 import { LOOKS, type LookId } from "../lib/map/style";
 import { CAMERA_DISTANCES, CHASE_LENGTHS, cameraDistanceScale, lengthLabel, suggestedLength } from "../lib/playback/lengths";
 import { CAMERA_OPTIONS, type CameraMode, autoExaggeration } from "../lib/playback/timeline";
@@ -89,7 +90,7 @@ export function ExportPage() {
   const exaggeration = useMemo(() => autoExaggeration(a), [a]);
 
   const size = exportSize(aspect, resolution);
-  const totalSeconds = exportDuration(length, endCard, reduced);
+  const totalSeconds = exportDuration(length, endCard, reduced) + (photosOn ? estimatePhotoSeconds(placedPhotos.map((p) => p.index), a.n) : 0);
 
   useEffect(() => () => abort.current?.abort(), []);
   useEffect(() => () => void (result && URL.revokeObjectURL(result.url)), [result]);
@@ -349,7 +350,7 @@ export function ExportPage() {
                       {placedPhotos.length > 0 && (
                         <label className="flex items-center gap-2.5">
                           <input type="checkbox" checked={photosOn} onChange={(e) => setPhotosOn(e.target.checked)} />
-                          Your photos where you took them ({placedPhotos.length}; add more on the Flyover step)
+                          Your photos where you took them ({placedPhotos.length}): the flyover pauses while each one fills the screen
                         </label>
                       )}
                       {ghosts && ghosts.length > 0 && (

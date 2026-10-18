@@ -15,6 +15,7 @@ import { type AtmosphereBase, HAZES, activityAir, activitySun, applyAtmosphere, 
 import { LOOKS, type LookId, flyoverStyle } from "../lib/map/style";
 import { planTiles, preloadTiles, releaseTiles, retryTiles } from "../lib/map/tileFetch";
 import { FlyoverRenderer, addFlyoverLayers } from "../lib/playback/renderer";
+import { type PhotoPage, withPhotoStops } from "../lib/playback/photoStops";
 import { CAMERA_DISTANCES, CHASE_LENGTHS, cameraDistanceScale, lengthLabel, suggestedLength } from "../lib/playback/lengths";
 import { CAMERA_OPTIONS, type CameraMode, type FrameState, type Timeline, autoExaggeration, buildTimeline } from "../lib/playback/timeline";
 import { DEFAULT_PRIVACY_RADIUS, useStore } from "../state/store";
@@ -91,6 +92,8 @@ export function FlyoverPage() {
   const mapRef = useRef<MlMap | null>(null);
   const rendererRef = useRef<FlyoverRenderer | null>(null);
   const timelineRef = useRef<Timeline | null>(null);
+  /** Photo stops on the current timeline. */
+  const photoPagesRef = useRef<PhotoPage[]>([]);
   const tRef = useRef(0);
   const free = cameraMode === "free";
   const freeRef = useRef(free);
@@ -139,10 +142,7 @@ export function FlyoverPage() {
         highlights,
         weather,
         ghosts: ghostsOn ? ghosts : null,
-        photos:
-          photosOn && timelineRef.current
-            ? placement.placed.map((p) => ({ image: p.photo.bitmap, at: p.at, T: timelineRef.current!.timeAtIndex(p.index) }))
-            : null,
+        photoPages: photoPagesRef.current,
         attribution: "",
         // Keep the stats clear of the map's own attribution control.
         bottomInset: 40 * dpr,
@@ -303,7 +303,7 @@ export function FlyoverPage() {
       size = key;
       const prev = timelineRef.current;
       const frac = prev ? tRef.current / prev.duration : 0;
-      timelineRef.current = buildTimeline(a, {
+      const base = buildTimeline(a, {
         followSeconds: length,
         width: container.current!.clientWidth,
         height: container.current!.clientHeight,
@@ -313,6 +313,10 @@ export function FlyoverPage() {
         distanceScale: cameraDistanceScale(cameraDistance, a.activity.kind),
         elevationAt: terrainGrid ? sampler(terrainGrid, NaN) : null,
       });
+      // Photo stops hold the flyover while each photo (or collage) has the screen.
+      const stops = withPhotoStops(base, photosOn ? placement.placed.map((p) => ({ image: p.photo.bitmap, index: p.index })) : []);
+      timelineRef.current = stops.timeline;
+      photoPagesRef.current = stops.pages;
       show(frac * timelineRef.current.duration);
       schedulePreload();
     };
@@ -326,7 +330,7 @@ export function FlyoverPage() {
       ro.disconnect();
       cancelAnimationFrame(pending);
     };
-  }, [ready, a, length, cameraMode, cameraDistance, reduced, exaggeration, terrainGrid, show, schedulePreload]);
+  }, [ready, a, length, cameraMode, cameraDistance, reduced, exaggeration, terrainGrid, show, schedulePreload, placement, photosOn]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -640,7 +644,7 @@ export function FlyoverPage() {
                       placement.unplaced.length ? ` Not near the route or taken at another time: ${placement.unplaced.map((p) => p.name).join(", ")}.` : "",
                       photoProblems.length ? ` Couldn't open ${photoProblems.join(", ")} (this browser can't read that format).` : "",
                     ].join("")
-                  : "Photos from the activity pop up where you took them (from their location or time). They stay on this device."
+                  : "The flyover pauses where you took each photo and lets it fill the screen; photos taken together become a collage. Placed by location or time, and kept on this device."
               }
             >
               <div className="flex flex-wrap items-center gap-2">

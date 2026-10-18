@@ -10,6 +10,7 @@ import { DETAIL, type DetailLevel, applyTerrainQuality } from "../map/detail";
 import { addBuildingLayer, addLandmarkLayers } from "../map/landmarks";
 import type { Weather } from "../weather";
 import type { GhostRunner } from "../playback/ghosts";
+import { withPhotoStops } from "../playback/photoStops";
 import type { LngLat } from "../geo/geo";
 import { type Haze, activityAir, activitySun, applyAtmosphere, applySunLighting, captureAtmosphere } from "../map/sun";
 import { LOOKS, type LookId, flyoverStyle } from "../map/style";
@@ -208,7 +209,7 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
   // The map's size is fixed: project without reading layout from the DOM every frame.
   renderer.setViewport(cssW, cssH);
   await fonts;
-  const timeline = buildTimeline(a, {
+  const base = buildTimeline(a, {
     followSeconds: opts.followSeconds,
     width: cssW,
     height: cssH,
@@ -220,7 +221,8 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
     endCard: opts.endCard,
     elevationAt: opts.terrain ? sampler(opts.terrain, NaN) : null,
   });
-  const photos = opts.photos?.map((p) => ({ image: p.image, at: p.at, T: timeline.timeAtIndex(p.index) })) ?? null;
+  // Photo stops hold the flyover while each photo (or collage) has the screen.
+  const { timeline, pages: photoPages } = withPhotoStops(base, opts.photos?.map((p) => ({ image: p.image, index: p.index })) ?? []);
   const composite = document.createElement("canvas");
   composite.width = W;
   composite.height = H;
@@ -243,7 +245,7 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
       highlights: opts.highlights,
       weather: opts.weather,
       ghosts: opts.ghosts,
-      photos,
+      photoPages,
       endCard: opts.endCard,
       attribution,
       exaggeration: opts.exaggeration,

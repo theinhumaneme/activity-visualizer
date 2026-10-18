@@ -8,6 +8,8 @@
 import type { Analysis } from "../analysis/types";
 import { atIndex } from "../analysis/series";
 import { type GhostRunner, gapWords, ghostsAt } from "../playback/ghosts";
+import type { PhotoPage } from "../playback/photoStops";
+import { type Rect, photoLayout } from "./photoLayout";
 import {
   formatClock,
   formatDate,
@@ -74,15 +76,8 @@ export interface HudOptions {
   weather?: Weather | null;
   /** Earlier runs of the route to race (ghost race). */
   ghosts?: readonly GhostRunner[] | null;
-  /** Photos placed on the route, with the video time the marker reaches each one. */
-  photos?: readonly HudPhoto[] | null;
-}
-
-export interface HudPhoto {
-  image: CanvasImageSource & { width: number; height: number };
-  at: LngLat;
-  /** Video time the athlete passes the spot. */
-  T: number;
+  /** Photo stops: pages of photos that take over the screen while the flyover holds. */
+  photoPages?: readonly PhotoPage[] | null;
 }
 
 interface Palette {
@@ -131,10 +126,10 @@ export function drawHud(ctx: CanvasRenderingContext2D, W: number, H: number, a: 
   }
   if (o.stats && f.fx.hud > 0 && !a.privacy.empty) drawStats(ctx, W, H, s, a, f, o, P, portrait, pad, safeBottom);
   if (f.moment && f.fx.hud > 0 && o.highlights !== false) drawMoment(ctx, W, s, a, f, o, P);
-  if (o.photos?.length && f.shot !== "pullback" && f.shot !== "end") drawPhotos(ctx, W, H, s, f, o, portrait, pad, safeTop, safeBottom);
   if (f.fx.finish > 0) drawFinish(ctx, W, s, a, f.fx.finish, o, P, titleFont, safeTop, portrait);
   if (f.shot === "chase" || f.shot === "reveal") drawDisclosure(ctx, W, s, f, o, P, pad, safeTop, portrait);
   if (o.endCard && f.fx.summary > 0) drawEndCard(ctx, W, H, s, a, f.fx.summary, o, P, titleFont, portrait, safeTop, safeBottom, false);
+  if (o.photoPages?.length) drawPhotoStop(ctx, W, H, s, a, f.T, o.photoPages, portrait, pad, safeTop, safeBottom);
   drawFooter(ctx, W, H, s, o, P);
   ctx.restore();
 }
@@ -293,58 +288,93 @@ function drawGhosts(ctx: CanvasRenderingContext2D, s: number, a: Analysis, f: Fr
   }
 }
 
-/** Seconds of video a photo stays up after the athlete passes its spot. */
-const PHOTO_HOLD = 3.2;
+// --- Photo stops ----------------------------------------------------------------------------------
 
-/**
- * A photo as a print that pops up when the athlete passes the spot it was taken, with a pin there
- * on the map. Upper part of the frame, clear of the live stats.
- */
-function drawPhotos(ctx: CanvasRenderingContext2D, W: number, H: number, s: number, f: FrameState, o: HudOptions, portrait: boolean, pad: number, safeTop: number, safeBottom: number) {
-  o.photos!.forEach((p, k) => {
-    const t = f.T - p.T;
-    if (t < 0 || t > PHOTO_HOLD) return;
-    const fadeIn = Math.min(1, t / 0.35);
-    const alpha = Math.min(1 - (1 - fadeIn) ** 3, Math.min(1, (PHOTO_HOLD - t) / 0.45));
-    if (alpha <= 0) return;
-    const pin = o.project?.(p.at);
+type Img = CanvasImageSource & { width: number; height: number };
+
+/** Fade between pages, and in from / out to the map, seconds. */
+const PAGE_FADE = 0.3;
+
+/** Draws an image filling `r` (cropped to fit), slowly zooming in over `t` (0–1). */
+function coverImage(ctx: CanvasRenderingContext2D, img: Img, r: Rect, radius: number, t: number) {
+  const k = Math.max(r.w / img.width, r.h / img.height) * (1 + 0.04 * t);
+  const w = img.width * k;
+  const h = img.height * k;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(r.x, r.y, r.w, r.h, radius);
+  ctx.clip();
+  ctx.drawImage(img, r.x + (r.w - w) / 2, r.y + (r.h - h) / 2, w, h);
+  ctx.restore();
+}
+
+/** Layouts per page and frame size (the search runs once, not every frame). */
+const layoutCache = new WeakMap<PhotoPage, { key: string; rects: Rect[] }>();
+
+/** One page: the photos whole, laid out to fill the frame, over a blurred copy of the first. */
+function drawPhotoPage(ctx: CanvasRenderingContext2D, W: number, H: number, s: number, page: PhotoPage, t: number, box: Rect) {
+  const imgs = page.photos.map((p) => p.image);
+  // Backdrop: the (first) photo blurred and dimmed, filling the frame; plain dark where the
+  // browser can't filter a canvas.
+  ctx.fillStyle = "#08090b";
+  ctx.fillRect(0, 0, W, H);
+  if ("filter" in ctx) {
     ctx.save();
-    if (pin) {
-      ctx.globalAlpha = alpha;
-      ctx.beginPath();
-      ctx.arc(pin[0], pin[1], 9 * s, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffffff";
-      ctx.fill();
-      ctx.lineWidth = 4 * s;
-      ctx.strokeStyle = o.accent;
-      ctx.stroke();
-    }
-    // Fit the print in its box, keeping the photo's shape.
-    const boxW = portrait ? W * 0.72 : W * 0.34;
-    const boxH = portrait ? (safeBottom - safeTop) * 0.42 : H * 0.46;
-    const frame = 12 * s;
-    const k2 = Math.min((boxW - 2 * frame) / p.image.width, (boxH - 2 * frame) / p.image.height);
-    const iw = p.image.width * k2;
-    const ih = p.image.height * k2;
-    const w = iw + 2 * frame;
-    const h = ih + 2 * frame;
-    const cx = portrait ? W / 2 : W - pad - w / 2;
-    const cy = (portrait ? safeTop + 70 * s : pad + 70 * s) + h / 2 + (1 - fadeIn) * 24 * s;
-    ctx.globalAlpha = alpha;
-    ctx.translate(cx, cy);
-    ctx.rotate(((k % 2 ? 1 : -1) * 1.6 * Math.PI) / 180);
-    ctx.scale(0.94 + 0.06 * fadeIn, 0.94 + 0.06 * fadeIn);
+    ctx.filter = `blur(${Math.round(40 * s)}px) brightness(${imgs.length > 1 ? 0.3 : 0.45})`;
+    coverImage(ctx, imgs[0], { x: -60 * s, y: -60 * s, w: W + 120 * s, h: H + 120 * s }, 0, t);
+    ctx.restore();
+  }
+  const key = `${box.x},${box.y},${box.w},${box.h}`;
+  let cached = layoutCache.get(page);
+  if (cached?.key !== key) {
+    cached = { key, rects: photoLayout(imgs.map((im) => im.width / im.height), box, 14 * s) };
+    layoutCache.set(page, cached);
+  }
+  const rects = cached.rects;
+  rects.forEach((r, k) => {
+    ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.45)";
     ctx.shadowBlur = 30 * s;
-    ctx.shadowOffsetY = 10 * s;
-    ctx.fillStyle = "#fbfaf7";
     ctx.beginPath();
-    ctx.roundRect(-w / 2, -h / 2, w, h, 6 * s);
+    ctx.roundRect(r.x, r.y, r.w, r.h, 10 * s);
+    ctx.fillStyle = "#000";
     ctx.fill();
-    ctx.shadowColor = "transparent";
-    ctx.drawImage(p.image, -w / 2 + frame, -h / 2 + frame, iw, ih);
     ctx.restore();
+    // A slow push-in inside each photo's own frame.
+    coverImage(ctx, imgs[k], r, 10 * s, t * 0.6);
   });
+}
+
+/**
+ * The photo stop at video time T, if any: the page full screen, cross-fading between pages and
+ * in from (out to) the held map, with where and when it was taken underneath.
+ */
+function drawPhotoStop(ctx: CanvasRenderingContext2D, W: number, H: number, s: number, a: Analysis, T: number, pages: readonly PhotoPage[], portrait: boolean, pad: number, safeTop: number, safeBottom: number) {
+  const k = pages.findIndex((p) => T >= p.start && T < p.start + p.duration);
+  if (k < 0) return;
+  const page = pages[k];
+  const t = T - page.start;
+  const caption = 68 * s;
+  const box: Rect = portrait
+    ? { x: pad * 0.6, y: safeTop, w: W - pad * 1.2, h: safeBottom - safeTop - caption }
+    : { x: pad, y: pad, w: W - 2 * pad, h: H - 2 * pad - caption };
+  const first = page.page === 1;
+  const last = page.page === page.pages;
+  const fadeIn = Math.min(1, t / PAGE_FADE);
+  const fadeOut = last ? Math.min(1, (page.duration - t) / PAGE_FADE) : 1;
+  ctx.save();
+  // Cross-fade from the previous page of the same stop (it stays put underneath).
+  if (!first && fadeIn < 1) drawPhotoPage(ctx, W, H, s, pages[k - 1], 1, box);
+  ctx.globalAlpha = Math.min(fadeIn, fadeOut);
+  drawPhotoPage(ctx, W, H, s, page, t / page.duration, box);
+  // Caption: where on the route and when.
+  const sample = a.samples[Math.min(a.n - 1, page.index)];
+  const n = page.photos.length;
+  const label = [n > 1 ? `${n} PHOTOS` : "PHOTO", formatDistance(a.dist[Math.min(a.n - 1, page.index)], a.settings.units).toUpperCase(), formatClock(sample.time, a.activity.utcOffsetMin).toUpperCase()].join("  ·  ");
+  const y = box.y + box.h + caption * 0.68;
+  spaced(ctx, label, box.x + 4 * s, y, 20 * s, "rgba(255,255,255,0.9)", 700);
+  if (page.pages > 1) spaced(ctx, `${page.page} / ${page.pages}`, box.x + box.w - 4 * s, y, 20 * s, "rgba(255,255,255,0.6)", 700, "right");
+  ctx.restore();
 }
 
 /** Soft shadow for text drawn straight on the map. */
