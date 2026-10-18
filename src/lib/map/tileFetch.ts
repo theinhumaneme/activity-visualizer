@@ -37,7 +37,7 @@ export function installTileRetry() {
 
 type TileResult = { ok: true; data: ArrayBuffer; cacheControl?: string | null; expires?: string | null } | { ok: false; status: number };
 
-const HD_TERRAIN = /\/api\/tiles\/dem\/(\d+)\/(\d+)\/(\d+)(\?[^#]*)?$/;
+const HD_TERRAIN = /^https:\/\/tiles\.mapterhorn\.com\/(\d+)\/(\d+)\/(\d+)\.webp$/;
 
 /**
  * Mapterhorn has no tile above z12 where there's no open high-resolution survey. There, a 512 px
@@ -49,11 +49,11 @@ async function awsTerrainTile(url: string, signal?: AbortSignal): Promise<ArrayB
   if (!m || typeof OffscreenCanvas === "undefined") return null;
   const [z, x, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
   if (z < 13 || z + 1 > 15) return null;
-  const base = url.slice(0, m.index) + "/api/tiles/terrain";
+  const base = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium";
   const parts = await Promise.all(
     [0, 1].flatMap((dy) =>
       [0, 1].map(async (dx) => {
-        const res = await fetchWithRetry(`${base}/${z + 1}/${2 * x + dx}/${2 * y + dy}${m[4] ?? ""}`, signal);
+        const res = await fetchWithRetry(`${base}/${z + 1}/${2 * x + dx}/${2 * y + dy}.png`, signal);
         return res.ok ? { dx, dy, bmp: await createImageBitmap(await res.blob(), { premultiplyAlpha: "none", colorSpaceConversion: "none" }) } : null;
       }),
     ),

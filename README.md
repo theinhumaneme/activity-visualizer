@@ -56,12 +56,11 @@ npx wrangler login
 npm run deploy
 ```
 
-The Worker (`worker/index.ts`) serves the built app as static assets with an SPA fallback and handles `/api/*`:
+The app is static files served by Workers Static Assets (no Worker invocation), with an SPA fallback. The Worker (`worker/index.ts`) only answers `/api/health` and `/api/config` (which imagery to use and its attribution), so it stays well inside the free plan. Everything runs on the free tier: no paid services or keys.
 
-- `/api/tiles/{satellite|terrain|dem}/z/x/y`: a tile proxy (`dem` is Mapterhorn terrain for the flyover, `terrain` is AWS terrain for analysis elevation and the stand-in tiles) with edge caching and per-IP rate limiting. It keeps tiles same-origin so the WebGL canvas can be captured for video export. Missing tiles (404s) are cached for a day. Cloudflare only guarantees the edge cache on a custom domain, so attach one (rather than serving from `workers.dev`) for a public deployment.
-- `/api/config`: tells the app which imagery attribution to show.
+Map tiles don't go through the Worker: the browser fetches them straight from each provider (OpenFreeMap, Esri, Mapterhorn, AWS). All of them send CORS headers, so the WebGL canvas stays readable for video export. No activity data goes anywhere; all processing happens on the device.
 
-Satellite imagery defaults to Esri World Imagery, which is fine for development and light use. For a public app, get a MapTiler key and set it as a secret. It stays server-side and switches imagery automatically:
+Satellite imagery defaults to Esri World Imagery (free, for light use). To use MapTiler instead, set a key as a secret; `/api/config` then hands the app MapTiler's tile URL. The key reaches the browser, as MapTiler keys are designed to, so restrict it to your domain in the MapTiler dashboard:
 
 ```bash
 npx wrangler secret put MAPTILER_KEY
@@ -73,7 +72,7 @@ The 2D basemaps and flyover labels come from [OpenFreeMap](https://openfreemap.o
 
 `src/lib/playback/timeline.ts` is a pure function from video time to camera, marker and overlay cues. It bakes the whole camera path at 60 Hz, so live preview and export are frame-identical. `src/lib/hud/hud.ts` draws the HUD on a canvas, and the same code draws the preview overlay, every video frame and posters. Export (`src/lib/export/render.ts`) works out every tile the flight needs and preloads them, then renders each frame off-screen, waits for any missing tiles, composites the HUD, and encodes MP4 (H.264) with WebCodecs via [Mediabunny]. Browsers without WebCodecs fall back to a MediaRecorder capture that pauses while each frame renders, so the video keeps the right timing. Route playback lengths and camera distances live in `src/lib/playback/lengths.ts`; the stat catalogs in `src/lib/hud/stats.ts`. Photo stops (`src/lib/playback/photoStops.ts`) wrap a finished timeline, inserting held time at each stop so the camera path is untouched; the collage layout is in `src/lib/hud/photoLayout.ts`. Ghosts are in `src/lib/playback/ghosts.ts`, the sun, sky and haze in `src/lib/map/sun.ts`.
 
-Map styles live in `src/lib/map/style.ts`. Every provider is keyless by default (OpenFreeMap vector tiles, Esri imagery, Mapterhorn and AWS terrain), and switching provider means editing that file and the tile proxy in `worker/index.ts`.
+Map styles live in `src/lib/map/style.ts`. Every provider is keyless by default (OpenFreeMap vector tiles, Esri imagery, Mapterhorn and AWS terrain), and switching provider means editing the tile URLs at the top of that file.
 
 [Mediabunny]: https://mediabunny.dev
 [Mapterhorn]: https://mapterhorn.com

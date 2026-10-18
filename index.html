@@ -13,6 +13,10 @@
     <meta name="theme-color" content="#101214" media="(prefers-color-scheme: dark)" />
     <!-- Map styles, vector tiles and glyphs come from OpenFreeMap: open the connection early. -->
     <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
+    <!-- Terrain and imagery come straight from their providers. -->
+    <link rel="preconnect" href="https://tiles.mapterhorn.com" crossorigin />
+    <link rel="preconnect" href="https://s3.amazonaws.com" crossorigin />
+    <link rel="dns-prefetch" href="https://server.arcgisonline.com" />
     <title>Activity Visualizer</title>
     <script>
       // Apply a saved light/dark choice before first paint.

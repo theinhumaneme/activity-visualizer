@@ -9,17 +9,8 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
   },
-  "ratelimits": [
-    {
-      // Per-IP cap on tile proxy requests that miss the edge cache (hits aren't counted). A first
-      // export of a new area at 60 fps can pull several thousand tiles a minute; the app backs
-      // off and retries on 429, so this protects the upstream quota without breaking renders.
-      "name": "TILE_LIMITER",
-      "namespace_id": "1001",
-      "simple": { "limit": 10000, "period": 60 }
-    }
-  ],
   "observability": { "enabled": true }
-  // Optional secret (not committed): MAPTILER_KEY — switches satellite imagery to MapTiler.
+  // Optional secret (not committed): MAPTILER_KEY — switches satellite imagery to MapTiler
+  // (the key reaches the browser; restrict it to your domain in the MapTiler dashboard).
   //   Local: put it in .dev.vars   Production: npx wrangler secret put MAPTILER_KEY
 }

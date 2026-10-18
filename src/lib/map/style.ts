@@ -9,10 +9,18 @@ import type { MapTheme } from "./route";
 
 setWorkerUrl(workerUrl);
 
-// Bump TILE_VERSION when what the proxy serves for a tile URL changes (tiles are cached as immutable):
-// v2 = satellite placeholders ("Map data not yet available") became 404s.
-const TILE_VERSION = 2;
-const tiles = (name: string) => [`${location.origin}/api/tiles/${name}/{z}/{x}/{y}?v=${TILE_VERSION}`];
+// Tiles come straight from each provider (all send CORS headers, so the map canvas stays readable
+// for video export); no server of ours sits in between.
+/** AWS Terrain Tiles (Terrarium, 256 px): analysis elevation, contours, and stand-in flyover terrain. */
+export const AWS_TERRAIN = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
+/** Mapterhorn (Terrarium, 512 px): the flyover's high-resolution terrain. */
+export const MAPTERHORN = "https://tiles.mapterhorn.com/{z}/{x}/{y}.webp";
+/**
+ * Esri World Imagery. blankTile=false: where Esri has no imagery at a zoom (mountains, remote
+ * areas at z18-19) it answers 404 instead of a grey "Map data not yet available" tile, so the map
+ * falls back to the nearest coarser real imagery.
+ */
+const ESRI_IMAGERY = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?blankTile=false";
 
 export const OSM_ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 export const OFM_ATTRIBUTION = '<a href="https://openfreemap.org">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/">OpenMapTiles</a>';
@@ -20,13 +28,20 @@ export const TERRAIN_ATTRIBUTION = "Terrain: Mapterhorn · Mapzen / AWS Open Dat
 const TERRAIN_ATTRIBUTION_HTML = '<a href="https://mapterhorn.com/attribution">© Mapterhorn</a> · Mapzen / AWS Open Data';
 
 let satelliteAttribution = "Imagery © Esri, Maxar, Earthstar Geographics";
-/** The Worker reports which imagery provider it's proxying (Esri by default, MapTiler with a key). */
+let satelliteTiles = ESRI_IMAGERY;
+/**
+ * The deployment can switch imagery to MapTiler by setting a key (MapTiler keys are public and
+ * locked to the site's domain); otherwise Esri.
+ */
 export async function loadMapConfig() {
   try {
     const res = await fetch("/api/config");
-    if (res.ok) satelliteAttribution = ((await res.json()) as { satelliteAttribution: string }).satelliteAttribution;
+    if (!res.ok) return;
+    const c = (await res.json()) as { satelliteAttribution?: string; satelliteTiles?: string };
+    if (c.satelliteAttribution) satelliteAttribution = c.satelliteAttribution;
+    if (c.satelliteTiles) satelliteTiles = c.satelliteTiles;
   } catch {
-    // Keep the default attribution.
+    // Keep Esri.
   }
 }
 export const getSatelliteAttribution = () => satelliteAttribution;
@@ -143,7 +158,7 @@ const isLine = ["match", ["geometry-type"], ["LineString", "MultiLineString"], t
  * exists. Where it has nothing finer than z12, tiles are built from AWS terrain (tileFetch).
  */
 const demSource = () =>
-  ({ type: "raster-dem", tiles: tiles("dem"), tileSize: 512, maxzoom: 16, encoding: "terrarium", attribution: TERRAIN_ATTRIBUTION_HTML }) as const;
+  ({ type: "raster-dem", tiles: [MAPTERHORN] as string[], tileSize: 512, maxzoom: 16, encoding: "terrarium", attribution: TERRAIN_ATTRIBUTION_HTML }) as const;
 
 /** Upright labels over imagery: water, places, major road names only (no POIs, no clutter). */
 function imageryLabels(halo: string, text: string): LayerSpecification[] {
@@ -270,7 +285,7 @@ export function satelliteStyle(exaggeration = 1.3, grade: Grade = "none", satell
       // which High detail declares as 128 so a deeper, sharper zoom level is fetched.
       satellite: {
         type: "raster",
-        tiles: tiles("satellite"),
+        tiles: [satelliteTiles],
         tileSize: satelliteAttribution.includes("MapTiler") ? 256 : satelliteTileSize,
         maxzoom: 19,
         attribution: satelliteAttribution,
@@ -376,7 +391,7 @@ let contours: InstanceType<typeof mlcontourModule.DemSource> | null = null;
 async function contourSource() {
   if (!contours) {
     const { default: mlcontour } = await import("maplibre-contour");
-    contours = new mlcontour.DemSource({ url: tiles("terrain")[0], encoding: "terrarium", maxzoom: 13, worker: true });
+    contours = new mlcontour.DemSource({ url: AWS_TERRAIN, encoding: "terrarium", maxzoom: 13, worker: true });
     contours.setupMaplibre({ addProtocol } as never);
   }
   return contours.contourProtocolUrl({

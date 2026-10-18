@@ -20,7 +20,7 @@ function tile(z: number, k: string): Promise<Pixels> {
     return hit;
   }
   const p = (async () => {
-    const res = await fetchWithRetry(`/api/tiles/terrain/${key}`);
+    const res = await fetchWithRetry(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${key}.png`);
     if (!res.ok) throw new Error(String(res.status));
     const bmp = await createImageBitmap(await res.blob());
     const canvas = new OffscreenCanvas(TILE, TILE);
@@ -39,8 +39,8 @@ function tile(z: number, k: string): Promise<Pixels> {
 }
 
 /**
- * Samples terrain elevation (meters) at each point from Terrarium-encoded DEM tiles served by our
- * Worker. Picks the highest zoom (≤14) that needs at most MAX_TILES tiles. Runs wherever it's
+ * Samples terrain elevation (meters) at each point from Terrarium-encoded DEM tiles (AWS Terrain
+ * Tiles, fetched directly). Picks the highest zoom (≤14) that needs at most MAX_TILES tiles. Runs wherever it's
  * called; `sampleTerrain` (dem.ts) sends it to a worker.
  */
 export async function sampleTerrainHere(lat: ArrayLike<number>, lon: ArrayLike<number>, signal?: AbortSignal): Promise<Float64Array> {
