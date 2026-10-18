@@ -177,6 +177,7 @@ export async function preloadTiles(urls: string[], signal: AbortSignal, onProgre
   store ??= await openStore();
   const s = store;
   urls = urls.filter((u) => !stored.has(u));
+  const queued = new Set(urls);
   let next = 0;
   let done = 0;
   onProgress(0, urls.length);
@@ -189,6 +190,14 @@ export async function preloadTiles(urls: string[], signal: AbortSignal, onProgre
         if (res.ok) {
           await s.put(url, await res.arrayBuffer());
           stored.add(url);
+        } else if (res.status === 404) {
+          // No tile at this zoom (e.g. imagery that stops at z17 in the mountains): the map will
+          // fall back to the parent tile, so fetch that too rather than waiting on it mid-flight.
+          const parent = parentTileUrl(url);
+          if (parent && !queued.has(parent) && !stored.has(parent)) {
+            queued.add(parent);
+            urls.push(parent);
+          }
         }
       } catch (err) {
         if (signal.aborted) throw err;
@@ -197,6 +206,15 @@ export async function preloadTiles(urls: string[], signal: AbortSignal, onProgre
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, urls.length) }, worker));
+}
+
+/** The z-1 tile covering a `/z/x/y` tile URL (query string kept), or null for other URL shapes. */
+export function parentTileUrl(url: string): string | null {
+  const m = /\/(\d+)\/(\d+)\/(\d+)(\.\w+)?(\?[^#]*)?$/.exec(url);
+  if (!m) return null;
+  const [z, x, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  if (z <= 0) return null;
+  return `${url.slice(0, m.index)}/${z - 1}/${x >> 1}/${y >> 1}${m[4] ?? ""}${m[5] ?? ""}`;
 }
 
 /** Drops preloaded tiles. */

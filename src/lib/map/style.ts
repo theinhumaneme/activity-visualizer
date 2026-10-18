@@ -9,7 +9,10 @@ import type { MapTheme } from "./route";
 
 setWorkerUrl(workerUrl);
 
-const tiles = (name: string) => [`${location.origin}/api/tiles/${name}/{z}/{x}/{y}`];
+// Bump TILE_VERSION when what the proxy serves for a tile URL changes (tiles are cached as immutable):
+// v2 = satellite placeholders ("Map data not yet available") became 404s.
+const TILE_VERSION = 2;
+const tiles = (name: string) => [`${location.origin}/api/tiles/${name}/{z}/{x}/{y}?v=${TILE_VERSION}`];
 
 export const OSM_ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 export const OFM_ATTRIBUTION = '<a href="https://openfreemap.org">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/">OpenMapTiles</a>';

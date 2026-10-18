@@ -17,7 +17,10 @@ const SOURCES: Record<string, TileSource> = {
     url: (z, x, y, env) =>
       key(env)
         ? `https://api.maptiler.com/tiles/satellite-v2/${z}/${x}/${y}.jpg?key=${key(env)}`
-        : `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
+        : // blankTile=false: where Esri has no imagery at this zoom (mountains, remote areas at z18-19)
+          // it answers 404 instead of a grey "Map data not yet available" tile, so the map falls back
+          // to the nearest coarser real imagery rather than drawing the placeholder.
+          `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}?blankTile=false`,
     maxzoom: 19,
     contentType: "image/jpeg",
   },
@@ -64,7 +67,9 @@ async function tile(request: Request, env: Env, ctx: ExecutionContext, name: str
   }
 
   const cache = caches.default;
-  const cacheKey = new Request(new URL(`/api/tiles/${name}/${z}/${x}/${y}`, request.url).toString());
+  // Versioned with the client's ?v= so a change in what a tile URL returns isn't masked by the edge cache.
+  const version = new URL(request.url).searchParams.get("v") ?? "1";
+  const cacheKey = new Request(new URL(`/api/tiles/${name}/${z}/${x}/${y}?v=${version}`, request.url).toString());
   const hit = await cache.match(cacheKey);
   if (hit) return hit;
 
