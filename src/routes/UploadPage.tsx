@@ -32,7 +32,7 @@ const FEATURES: { icon: Icon; title: string; items: string[] }[] = [
     icon: "camera",
     title: "Your story along the route",
     items: [
-      "Your photos pause the flyover where you took them, as collages",
+      "Your photos pause the flyover where you took them: full screen, as a collage or a slideshow",
       "Race your best and last attempt as ghosts in 3D",
       "Fastest mile, biggest climb and other highlights on the map",
       "The weather that day, if you want it",
