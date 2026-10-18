@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Units } from "../lib/analysis/types";
 import { defaultUnits } from "../lib/format/format";
+import { clearEntries, loadEntries, saveEntries } from "../lib/library/persist";
 import { processFiles } from "../lib/library/pool";
 import { isDuplicate } from "../lib/library/record";
 import type { LibraryEntry } from "../lib/library/types";
@@ -48,6 +49,10 @@ interface LibraryState {
   unsupported: number;
   duplicates: number;
   units: Units;
+  /** Reading the saved library at startup. */
+  restoring: boolean;
+  /** The browser wouldn't keep the last files added (storage full or off): they last this visit only. */
+  notSaved: boolean;
   addFiles(files: File[]): Promise<void>;
   cancel(): void;
   clear(): void;
@@ -58,6 +63,8 @@ interface LibraryState {
 
 let abort: AbortController | null = null;
 let seq = 0;
+/** Ids stay unique across visits now that entries are saved. */
+const session = Date.now().toString(36);
 
 export const useLibrary = create<LibraryState>((set, get) => ({
   entries: [],
@@ -67,12 +74,14 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   unsupported: 0,
   duplicates: 0,
   units: storedUnits(),
+  restoring: typeof indexedDB !== "undefined",
+  notSaved: false,
 
   async addFiles(files) {
     if (get().loading) return;
     const readable = files.filter((f) => LIBRARY_FILE.test(f.name));
     const tooBig = readable.filter((f) => f.size > MAX_BYTES);
-    const jobs = readable.filter((f) => f.size <= MAX_BYTES).map((file) => ({ id: `f${++seq}`, file }));
+    const jobs = readable.filter((f) => f.size <= MAX_BYTES).map((file) => ({ id: `${session}-${++seq}`, file }));
     const ctrl = new AbortController();
     abort = ctrl;
     set({
@@ -122,6 +131,10 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       problems: [...s.problems, ...problems],
       duplicates,
     }));
+    if (added.length) {
+      const saved = await saveEntries(added);
+      set({ notSaved: !saved });
+    }
   },
 
   cancel() {
@@ -133,7 +146,8 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   clear() {
     abort?.abort();
     abort = null;
-    set({ entries: [], loading: false, progress: { done: 0, total: 0 }, problems: [], unsupported: 0, duplicates: 0 });
+    set({ entries: [], loading: false, progress: { done: 0, total: 0 }, problems: [], unsupported: 0, duplicates: 0, notSaved: false });
+    void clearEntries();
   },
 
   setUnits(u) {
@@ -163,3 +177,16 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     return true;
   },
 }));
+
+// Bring back the library saved on earlier visits.
+if (typeof indexedDB !== "undefined")
+  void loadEntries()
+    .then((saved) => {
+      if (!saved.length) return;
+      useLibrary.setState((s) => {
+        const ids = new Set(s.entries.map((e) => e.id));
+        return { entries: [...s.entries, ...saved.filter((e) => !ids.has(e.id))].sort((a, b) => a.startTime - b.startTime) };
+      });
+    })
+    .catch(() => {})
+    .finally(() => useLibrary.setState({ restoring: false }));

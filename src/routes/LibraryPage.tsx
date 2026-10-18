@@ -49,6 +49,8 @@ export function LibraryPage() {
   const setUnits = useLibrary((s) => s.setUnits);
   const cancel = useLibrary((s) => s.cancel);
   const clear = useLibrary((s) => s.clear);
+  const restoring = useLibrary((s) => s.restoring);
+  const notSaved = useLibrary((s) => s.notSaved);
   const open = useLibrary((s) => s.open);
   const mainUnits = useStore((s) => s.settings?.units);
   const mainError = useStore((s) => s.error);
@@ -124,6 +126,7 @@ export function LibraryPage() {
           {shown.length > 0 && (
             <p className="mt-2 text-sm text-ink-2">
               {shortDate(shown[0])} – {shortDate(shown[shown.length - 1])}
+              <span className="text-muted"> · kept in this browser for your next visit</span>
             </p>
           )}
         </div>
@@ -132,7 +135,7 @@ export function LibraryPage() {
             <AddFiles />
             <button
               onClick={() => {
-                if (confirm("Remove every activity from the library? Your files aren't touched.")) clear();
+                if (confirm("Remove every activity from the library, including the copies kept in this browser? Your original files aren't touched.")) clear();
               }}
               className="rounded-full px-3 py-2 text-sm text-muted hover:bg-surface-2 hover:text-ink-2"
             >
@@ -180,7 +183,13 @@ export function LibraryPage() {
         </p>
       )}
 
-      {!entries.length && !loading && (
+      {notSaved && !loading && (
+        <p role="status" className="mt-4 rounded-lg bg-warning/15 px-3 py-2 text-sm text-ink">
+          This browser wouldn't store more (its storage is full or turned off), so the last files you added are here for this visit only.
+        </p>
+      )}
+
+      {!entries.length && !loading && !restoring && (
         <div className="mt-6">
           <AddFiles zone />
         </div>
