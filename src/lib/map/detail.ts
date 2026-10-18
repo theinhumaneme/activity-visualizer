@@ -27,12 +27,17 @@ interface DetailSettings {
    * imagery stays sharp on 2× screens and exports instead of being upscaled (4× the tiles).
    */
   satelliteTileSize: 128 | 256;
+  /**
+   * Declared size of the 512 px terrain tiles: 256 fetches one zoom level deeper (finer relief,
+   * 4× the elevation data); Lite takes them at face value.
+   */
+  demTileSize: 256 | 512;
 }
 
 export const DETAIL: Record<DetailLevel, DetailSettings> = {
-  lite: { terrainQuality: 1.5, pixelRatio: 1, satelliteTileSize: 256 },
-  standard: { terrainQuality: 2, pixelRatio: 2, satelliteTileSize: 256 },
-  high: { terrainQuality: 3, pixelRatio: 2, satelliteTileSize: 128 },
+  lite: { terrainQuality: 1.5, pixelRatio: 1, satelliteTileSize: 256, demTileSize: 512 },
+  standard: { terrainQuality: 2, pixelRatio: 2, satelliteTileSize: 256, demTileSize: 256 },
+  high: { terrainQuality: 3, pixelRatio: 2, satelliteTileSize: 128, demTileSize: 256 },
 };
 
 /** Device class from what the browser reports (deviceMemory is Chromium-only; Safari reports none). */

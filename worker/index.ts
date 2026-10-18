@@ -29,6 +29,14 @@ const SOURCES: Record<string, TileSource> = {
     maxzoom: 15,
     contentType: "image/png",
   },
+  // Mapterhorn: free, open high-resolution terrain (512 px Terrarium). Global to z12; finer where
+  // national lidar is open (much of Europe and the US). Elsewhere z13+ is a 404 and the client
+  // builds the tile from AWS terrain instead (see tileFetch).
+  dem: {
+    url: (z, x, y) => `https://tiles.mapterhorn.com/${z}/${x}/${y}.webp`,
+    maxzoom: 16,
+    contentType: "image/webp",
+  },
 };
 
 const TILE_PATH = /^\/api\/tiles\/([a-z]+)\/(\d{1,2})\/(\d+)\/(\d+)$/;

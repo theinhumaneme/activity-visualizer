@@ -139,7 +139,7 @@ export function Layout() {
         <p className="mt-1.5">
           Map data © <FooterLink href="https://www.openstreetmap.org/copyright">OpenStreetMap</FooterLink> contributors · Tiles by{" "}
           <FooterLink href="https://openfreemap.org">OpenFreeMap</FooterLink> · Terrain from{" "}
-          <FooterLink href="https://registry.opendata.aws/terrain-tiles/">AWS Open Data</FooterLink> · Rendered with{" "}
+          <FooterLink href="https://mapterhorn.com/attribution">Mapterhorn</FooterLink> and <FooterLink href="https://registry.opendata.aws/terrain-tiles/">AWS Open Data</FooterLink> · Rendered with{" "}
           <FooterLink href="https://maplibre.org">MapLibre</FooterLink> and <FooterLink href="https://mediabunny.dev">Mediabunny</FooterLink>
         </p>
         <p className="mt-1.5">

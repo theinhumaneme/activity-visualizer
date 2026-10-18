@@ -16,7 +16,8 @@ const tiles = (name: string) => [`${location.origin}/api/tiles/${name}/{z}/{x}/{
 
 export const OSM_ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 export const OFM_ATTRIBUTION = '<a href="https://openfreemap.org">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/">OpenMapTiles</a>';
-export const TERRAIN_ATTRIBUTION = "Terrain: Mapzen / AWS Open Data";
+export const TERRAIN_ATTRIBUTION = "Terrain: Mapterhorn · Mapzen / AWS Open Data";
+const TERRAIN_ATTRIBUTION_HTML = '<a href="https://mapterhorn.com/attribution">© Mapterhorn</a> · Mapzen / AWS Open Data';
 
 let satelliteAttribution = "Imagery © Esri, Maxar, Earthstar Geographics";
 /** The Worker reports which imagery provider it's proxying (Esri by default, MapTiler with a key). */
@@ -137,8 +138,12 @@ const FONT = ["Noto Sans Regular"];
 const isPoint = ["match", ["geometry-type"], ["Point", "MultiPoint"], true, false];
 const isLine = ["match", ["geometry-type"], ["LineString", "MultiLineString"], true, false];
 
+/**
+ * 3D terrain from Mapterhorn: 512 px tiles, 30 m worldwide and down to ~1 m where open lidar
+ * exists. Where it has nothing finer than z12, tiles are built from AWS terrain (tileFetch).
+ */
 const demSource = () =>
-  ({ type: "raster-dem", tiles: tiles("terrain"), tileSize: 256, maxzoom: 15, encoding: "terrarium", attribution: TERRAIN_ATTRIBUTION }) as const;
+  ({ type: "raster-dem", tiles: tiles("dem"), tileSize: 512, maxzoom: 16, encoding: "terrarium", attribution: TERRAIN_ATTRIBUTION_HTML }) as const;
 
 /** Upright labels over imagery: water, places, major road names only (no POIs, no clutter). */
 function imageryLabels(halo: string, text: string): LayerSpecification[] {
@@ -538,6 +543,7 @@ export async function flyoverStyle(id: LookId, exaggeration: number, detail: Det
         : id === "blueprint"
           ? await blueprintStyle(exaggeration)
           : satelliteStyle(exaggeration, grade, DETAIL[detail].satelliteTileSize);
+  if (style.sources.dem) (style.sources.dem as { tileSize?: number }).tileSize = DETAIL[detail].demTileSize;
   return detail === "lite" ? liteStyle(style) : style;
 }
 

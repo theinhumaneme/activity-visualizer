@@ -23,7 +23,7 @@ export function installTileRetry() {
     const url = params.url.slice(SCHEME.length + 3);
     const stored = await store?.get(url);
     if (stored) return { data: stored };
-    const res = await fetchWithRetry(url, abort.signal);
+    const res = await fetchTile(url, abort.signal);
     if (!res.ok) {
       if (res.status !== 404) {
         tileHealth.failed++;
@@ -31,8 +31,55 @@ export function installTileRetry() {
       }
       throw new Error(`Tile request failed (${res.status})`);
     }
-    return { data: await res.arrayBuffer(), cacheControl: res.headers.get("Cache-Control"), expires: res.headers.get("Expires") };
+    return { data: res.data, cacheControl: res.cacheControl, expires: res.expires };
   });
+}
+
+type TileResult = { ok: true; data: ArrayBuffer; cacheControl?: string | null; expires?: string | null } | { ok: false; status: number };
+
+const HD_TERRAIN = /\/api\/tiles\/dem\/(\d+)\/(\d+)\/(\d+)(\?[^#]*)?$/;
+
+/**
+ * Mapterhorn has no tile above z12 where there's no open high-resolution survey. There, a 512 px
+ * tile is put together from the four 256 px AWS terrain tiles one zoom deeper (same area, same
+ * Terrarium encoding), so those places keep AWS's detail instead of dropping to z12.
+ */
+async function awsTerrainTile(url: string, signal?: AbortSignal): Promise<ArrayBuffer | null> {
+  const m = HD_TERRAIN.exec(url);
+  if (!m || typeof OffscreenCanvas === "undefined") return null;
+  const [z, x, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  if (z < 13 || z + 1 > 15) return null;
+  const base = url.slice(0, m.index) + "/api/tiles/terrain";
+  const parts = await Promise.all(
+    [0, 1].flatMap((dy) =>
+      [0, 1].map(async (dx) => {
+        const res = await fetchWithRetry(`${base}/${z + 1}/${2 * x + dx}/${2 * y + dy}${m[4] ?? ""}`, signal);
+        return res.ok ? { dx, dy, bmp: await createImageBitmap(await res.blob(), { premultiplyAlpha: "none", colorSpaceConversion: "none" }) } : null;
+      }),
+    ),
+  );
+  if (parts.some((p) => !p)) {
+    parts.forEach((p) => p?.bmp.close());
+    return null;
+  }
+  const canvas = new OffscreenCanvas(512, 512);
+  const ctx = canvas.getContext("2d")!;
+  for (const p of parts) {
+    ctx.drawImage(p!.bmp, p!.dx * 256, p!.dy * 256);
+    p!.bmp.close();
+  }
+  return (await canvas.convertToBlob({ type: "image/png" })).arrayBuffer();
+}
+
+/** A tile's bytes, with the AWS stand-in for missing high-resolution terrain. */
+async function fetchTile(url: string, signal?: AbortSignal): Promise<TileResult> {
+  const res = await fetchWithRetry(url, signal);
+  if (res.ok) return { ok: true, data: await res.arrayBuffer(), cacheControl: res.headers.get("Cache-Control"), expires: res.headers.get("Expires") };
+  if (res.status === 404) {
+    const built = await awsTerrainTile(url, signal).catch(() => null);
+    if (built) return { ok: true, data: built };
+  }
+  return { ok: false, status: res.status };
 }
 
 /** Map option: route every http(s) tile request through the retrying protocol. */
@@ -186,9 +233,9 @@ export async function preloadTiles(urls: string[], signal: AbortSignal, onProgre
       if (signal.aborted) throw new DOMException("Preload canceled", "AbortError");
       const url = urls[next++];
       try {
-        const res = await fetchWithRetry(url, signal);
+        const res = await fetchTile(url, signal);
         if (res.ok) {
-          await s.put(url, await res.arrayBuffer());
+          await s.put(url, res.data);
           stored.add(url);
         } else if (res.status === 404) {
           // No tile at this zoom (e.g. imagery that stops at z17 in the mountains): the map will
