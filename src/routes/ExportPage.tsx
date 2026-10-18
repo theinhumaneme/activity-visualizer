@@ -11,6 +11,7 @@ import { MAP_DETAILS, resolveDetail } from "../lib/map/detail";
 import { HAZES } from "../lib/map/sun";
 import { placePhotos } from "../lib/photos";
 import { estimatePhotoSeconds } from "../lib/playback/photoStops";
+import { GLOBE_SECONDS } from "../lib/playback/globeIntro";
 import { LOOKS, type LookId } from "../lib/map/style";
 import { CAMERA_DISTANCES, CHASE_LENGTHS, cameraDistanceScale, lengthLabel, suggestedLength } from "../lib/playback/lengths";
 import { CAMERA_OPTIONS, type CameraMode, autoExaggeration } from "../lib/playback/timeline";
@@ -18,8 +19,10 @@ import { useStore } from "../state/store";
 
 const ASPECTS: { value: Aspect; label: string; name: string; hint: string; box: [number, number] }[] = [
   { value: "9:16", label: "9:16", name: "Portrait", hint: "Reels, Stories", box: [11, 20] },
+  { value: "4:5", label: "4:5", name: "Feed", hint: "Instagram feed", box: [15, 19] },
   { value: "1:1", label: "1:1", name: "Square", hint: "Feed posts", box: [17, 17] },
   { value: "16:9", label: "16:9", name: "Landscape", hint: "YouTube, desktop", box: [24, 13.5] },
+  { value: "21:9", label: "21:9", name: "Cinema", hint: "Widescreen", box: [28, 12] },
 ];
 
 const reduced = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -57,6 +60,7 @@ export function ExportPage() {
   const buildings = useStore((s) => s.buildings);
   const weather = useStore((s) => s.weather);
   const haze = useStore((s) => s.haze);
+  const globeIntro = useStore((s) => s.globeIntro);
   const ghosts = useStore((s) => s.ghosts);
   const photos = useStore((s) => s.photos);
   const photosOn = useStore((s) => s.photosOn);
@@ -90,13 +94,13 @@ export function ExportPage() {
   const exaggeration = useMemo(() => autoExaggeration(a), [a]);
 
   const size = exportSize(aspect, resolution);
-  const totalSeconds = exportDuration(length, endCard, reduced) + (photosOn ? estimatePhotoSeconds(placedPhotos.map((p) => p.index), a.n) : 0);
+  const totalSeconds = exportDuration(length, endCard, reduced, globeIntro) + (photosOn ? estimatePhotoSeconds(placedPhotos.map((p) => p.index), a.n) : 0);
 
   useEffect(() => () => abort.current?.abort(), []);
   useEffect(() => () => void (result && URL.revokeObjectURL(result.url)), [result]);
   useEffect(() => void loadHudFonts(LOOKS[lookId]).then(() => setFontsReady(true)), [lookId]);
 
-  const previewW = aspect === "16:9" ? 520 : aspect === "1:1" ? 380 : 290;
+  const previewW = { "9:16": 290, "4:5": 330, "1:1": 380, "16:9": 520, "21:9": 560 }[aspect];
   const previewH = Math.round((previewW * size.height) / size.width);
 
   // Until rendering starts, the canvas shows a representative frame of the current options.
@@ -146,6 +150,7 @@ export function ExportPage() {
       photos: photosOn ? placedPhotos.map((p) => ({ image: p.photo.bitmap, at: p.at, index: p.index })) : null,
       sunLighting,
       haze,
+      globeIntro,
       endCard,
       fps,
       terrain,
@@ -304,6 +309,18 @@ export function ExportPage() {
                   >
                     <Segmented size="sm" label="Route playback length" value={String(length)} onChange={(v) => setLength(Number(v))} options={CHASE_LENGTHS.map((l) => ({ value: String(l), label: lengthLabel(l) }))} />
                   </ControlRow>
+                  <ControlRow label="Opening" hint={reduced ? "Off while reduced motion is on." : globeIntro ? `Starts on the whole Earth and dives down to the start (+${GLOBE_SECONDS} s).` : undefined}>
+                    <Segmented
+                      size="sm"
+                      label="Opening"
+                      value={globeIntro && !reduced ? "globe" : "local"}
+                      onChange={(v) => setVideoStats({ globeIntro: v === "globe" })}
+                      options={[
+                        { value: "local", label: "Over the route" },
+                        { value: "globe", label: "From the globe", disabled: reduced },
+                      ]}
+                    />
+                  </ControlRow>
                   <PhotoPicker a={a} />
                   <ControlRow label="Haze" hint={haze === "auto" ? "The look's own, or from the weather when it's on." : undefined}>
                     <Segmented
@@ -457,7 +474,7 @@ export function ExportPage() {
             <div className="flex flex-col items-center">
               <div
                 className="relative w-[var(--pw-sm)] max-w-full sm:w-[var(--pw)]"
-                style={{ "--pw": `${previewW}px`, "--pw-sm": `${aspect === "9:16" ? 200 : aspect === "1:1" ? 280 : 340}px` } as CSSProperties}
+                style={{ "--pw": `${previewW}px`, "--pw-sm": `${{ "9:16": 200, "4:5": 240, "1:1": 280, "16:9": 340, "21:9": 340 }[aspect]}px` } as CSSProperties}
               >
                 <canvas ref={preview} width={previewW * 2} height={previewH * 2} className="block w-full rounded-control bg-black shadow-[var(--shadow-raised)]" />
                 {error && !rendering && (

@@ -9,6 +9,7 @@ import { PaceChart } from "../components/analysis/PaceChart";
 import { PowerChart, PowerCurve, PowerSummary, PowerZones } from "../components/analysis/Power";
 import { SplitsTable } from "../components/analysis/SplitsTable";
 import { SummaryHeader } from "../components/analysis/SummaryHeader";
+import { WindSection } from "../components/analysis/Wind";
 import { NextStep, Page, SectionHeading, Segmented } from "../components/ui";
 import { useStore } from "../state/store";
 
@@ -61,6 +62,7 @@ export function AnalysisPage() {
     ...(!routeOnly || a.elev ? [{ id: "splits", label: "Splits" }] : []),
     ...(hasZones ? [{ id: "zones", label: "HR zones" }] : []),
     ...(a.power ? [{ id: "power", label: "Power" }] : []),
+    ...(!routeOnly ? [{ id: "wind", label: "Wind" }] : []),
     ...(!routeOnly ? [{ id: "efforts", label: "Best efforts" }] : []),
     ...(!routeOnly ? [{ id: "efficiency", label: "Efficiency" }] : []),
   ];
@@ -159,6 +161,13 @@ export function AnalysisPage() {
                 <PowerCurve a={a} />
                 {a.power.zones.length > 0 && <PowerZones a={a} />}
               </div>
+            </section>
+          )}
+
+          {!routeOnly && (
+            <section aria-labelledby="wind-h">
+              <SectionHeading id="wind" title={<span id="wind-h">Wind</span>} />
+              <WindSection a={a} />
             </section>
           )}
 

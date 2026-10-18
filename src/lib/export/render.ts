@@ -11,6 +11,7 @@ import { addBuildingLayer, addLandmarkLayers } from "../map/landmarks";
 import type { Weather } from "../weather";
 import type { GhostRunner } from "../playback/ghosts";
 import { withPhotoStops } from "../playback/photoStops";
+import { GLOBE_SECONDS, withGlobeIntro } from "../playback/globeIntro";
 import type { LngLat } from "../geo/geo";
 import { type Haze, activityAir, activitySun, applyAtmosphere, applySunLighting, captureAtmosphere } from "../map/sun";
 import { LOOKS, type LookId, flyoverStyle } from "../map/style";
@@ -18,7 +19,7 @@ import { planTiles, preloadTiles, releaseTiles, reloadFailedTiles, retryTiles, t
 import { FlyoverRenderer, addFlyoverLayers, settled } from "../playback/renderer";
 import { type CameraMode, type Timeline, buildTimeline } from "../playback/timeline";
 
-export type Aspect = "9:16" | "1:1" | "16:9";
+export type Aspect = "9:16" | "4:5" | "1:1" | "16:9" | "21:9";
 
 export type Resolution = 720 | 1080 | 2160;
 
@@ -50,6 +51,8 @@ export interface ExportOptions {
   photos?: readonly { image: ImageBitmap; at: LngLat; index: number }[] | null;
   /** Light terrain and buildings from the sun's real position (default on). */
   sunLighting?: boolean;
+  /** Open on the whole globe and dive down to the activity. */
+  globeIntro?: boolean;
   /** Haze over the distance ("auto": from the weather when it's on, else the look's own). */
   haze?: Haze;
   /** Multiplier on the chase camera distance. */
@@ -85,7 +88,13 @@ export interface ExportResult {
 export function exportSize(aspect: Aspect, short: number) {
   const even = (v: number) => Math.round(v / 2) * 2;
   if (aspect === "9:16") return { width: short, height: even((short * 16) / 9) };
+  if (aspect === "4:5") return { width: short, height: even((short * 5) / 4) };
   if (aspect === "16:9") return { width: even((short * 16) / 9), height: short };
+  if (aspect === "21:9") {
+    // Capped at 3840 wide (4K): the widest map canvas and the widest most hardware encoders take.
+    const width = Math.min(even((short * 21) / 9), 3840);
+    return { width, height: even((width * 9) / 21) };
+  }
   return { width: short, height: short };
 }
 
@@ -112,8 +121,8 @@ export function videoBitrate(codec: VideoCodec, width: number, height: number, f
 }
 
 /** Total video length for these options (intro + reveal + chase + finish + pull-back + end card). */
-export function exportDuration(followSeconds: number, endCard: boolean, reducedMotion: boolean) {
-  return (reducedMotion ? 1.2 : 3) + 1.2 + Math.max(4, followSeconds) + 1.6 + (reducedMotion ? 2.4 : 3.2) + (endCard ? 3 : 1);
+export function exportDuration(followSeconds: number, endCard: boolean, reducedMotion: boolean, globeIntro = false) {
+  return (reducedMotion ? 1.2 : 3) + 1.2 + Math.max(4, followSeconds) + 1.6 + (reducedMotion ? 2.4 : 3.2) + (endCard ? 3 : 1) + (globeIntro && !reducedMotion ? GLOBE_SECONDS : 0);
 }
 
 interface Stage {
@@ -190,6 +199,8 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
   // shifts the whole view up and down as tiles change: visible as jitter.
   if (opts.terrain) map.setCenterClampedToGround(false);
   redrawTexturesAtOnce(map);
+  const globe = !!opts.globeIntro && !opts.reducedMotion;
+  if (globe) map.setProjection({ type: "globe" });
   // Exports never go below MapLibre's default texture resolution (Lite only lightens on-page maps).
   // At 4K the draped textures need twice the resolution to stay as sharp (capped: 30 of them sit
   // in graphics memory).
@@ -222,7 +233,7 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
     elevationAt: opts.terrain ? sampler(opts.terrain, NaN) : null,
   });
   // Photo stops hold the flyover while each photo (or collage) has the screen.
-  const { timeline, pages: photoPages } = withPhotoStops(base, opts.photos?.map((p) => ({ image: p.image, index: p.index })) ?? []);
+  const { timeline, pages: photoPages } = withPhotoStops(globe ? withGlobeIntro(base) : base, opts.photos?.map((p) => ({ image: p.image, index: p.index })) ?? []);
   const composite = document.createElement("canvas");
   composite.width = W;
   composite.height = H;

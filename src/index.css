@@ -28,6 +28,7 @@
   --color-series-elev: var(--series-elev);
   --color-series-cad: var(--series-cad);
   --color-series-power: var(--series-power);
+  --color-series-wind: var(--series-wind);
   --color-zone-1: var(--zone-1);
   --color-zone-2: var(--zone-2);
   --color-zone-3: var(--zone-3);
@@ -94,6 +95,7 @@
   --series-elev: #148a5b;
   --series-cad: #6a55d8;
   --series-power: #c77700;
+  --series-wind: #0f8a8c;
   /* Heart-rate zones, easy → max. Shared by the HR chart, zone bars and map legends. */
   --zone-1: #8a97a8;
   --zone-2: #3d7fbf;
@@ -131,6 +133,7 @@
     --series-elev: #2fbf85;
     --series-cad: #a08cff;
     --series-power: #f5b03c;
+    --series-wind: #3cc6c8;
     --zone-1: #8e9aab;
     --zone-2: #5b9ee0;
     --zone-3: #45c27a;
@@ -166,6 +169,7 @@
   --series-elev: #2fbf85;
   --series-cad: #a08cff;
   --series-power: #f5b03c;
+  --series-wind: #3cc6c8;
   --zone-1: #8e9aab;
   --zone-2: #5b9ee0;
   --zone-3: #45c27a;

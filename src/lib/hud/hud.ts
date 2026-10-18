@@ -29,7 +29,8 @@ import type { Look } from "../map/style";
 import type { FrameState } from "../playback/timeline";
 import { SPORTS } from "../sport";
 import { DEFAULT_END, DEFAULT_LIVE, type EndStat, type LiveStat, pickEnd, pickLive } from "./stats";
-import { type Weather, formatTemp, weatherAt, weatherSummary, weatherText } from "../weather";
+import { type Weather, compass, formatTemp, weatherAt, weatherSummary, weatherText } from "../weather";
+import { windAlong, windLabel } from "../wind";
 
 // The app's typeface, so overlays and exports match the interface. Titles are Inter at a heavier weight.
 export const FONT_SANS = '"Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
@@ -99,10 +100,12 @@ export function drawHud(ctx: CanvasRenderingContext2D, W: number, H: number, a: 
   const s = Math.min(W, H) / 1080;
   const portrait = H > W * 1.2;
   const pad = 48 * s;
-  // 9:16 safe areas: keep key content between 12% and 82% of the height, and above any
-  // attribution drawn by the map underneath (bottomInset).
-  const safeTop = portrait ? H * 0.12 : pad;
-  const safeBottom = Math.min(portrait ? H * 0.82 : H - pad, H - (o.bottomInset ?? 0));
+  // Story-shaped frames (9:16) have app UI over the top and bottom: keep key content between 12%
+  // and 82% of the height. Feed posts (4:5) have none. Always clear of any attribution drawn by
+  // the map underneath (bottomInset).
+  const story = H > W * 1.5;
+  const safeTop = story ? H * 0.12 : pad;
+  const safeBottom = Math.min(story ? H * 0.82 : H - pad, H - (o.bottomInset ?? 0));
   const titleFont = o.look.titleFont === "serif" ? FONT_SERIF : FONT_DISPLAY;
   ctx.save();
   ctx.textBaseline = "alphabetic";
@@ -143,8 +146,9 @@ export function drawPreviewHud(ctx: CanvasRenderingContext2D, W: number, H: numb
   const s = Math.min(W, H) / 1080;
   const portrait = H > W * 1.2;
   const pad = 48 * s;
-  const safeTop = portrait ? H * 0.12 : pad;
-  const safeBottom = portrait ? H * 0.82 : H - pad;
+  const story = H > W * 1.5;
+  const safeTop = story ? H * 0.12 : pad;
+  const safeBottom = story ? H * 0.82 : H - pad;
   const titleFont = o.look.titleFont === "serif" ? FONT_SERIF : FONT_DISPLAY;
   ctx.save();
   ctx.textBaseline = "alphabetic";
@@ -532,6 +536,19 @@ function liveItems(a: Analysis, i: number, chosen: readonly LiveStat[] = DEFAULT
     } else if (key === "temp" && weather) {
       const t = formatTemp(weatherAt(weather, a.samples[k].time).temp, u);
       out.push({ label: "TEMP", value: t.replace(/°[CF]$/, "°"), unit: t === "—" ? undefined : u === "metric" ? "C" : "F" });
+    } else if (key === "wind" && weather) {
+      // Headwind or tailwind right now (crosswind when it's mostly from the side).
+      const wa = windAlong(a, weather);
+      const h = wa?.head[k] ?? NaN;
+      const c = wa?.cross[k] ?? NaN;
+      const name = windLabel(h, c);
+      const v = name === "Crosswind" ? c : Math.abs(h);
+      const unit = u === "metric" ? "km/h" : "mph";
+      out.push(
+        name === "Calm" || !Number.isFinite(v)
+          ? { label: "WIND", value: "calm" }
+          : { label: name.toUpperCase(), value: String(Math.round(u === "metric" ? v : v / 1.609344)), unit },
+      );
     }
   }
   return out;
@@ -812,7 +829,10 @@ function endStats(a: Analysis, chosen: readonly EndStat[] = DEFAULT_END, weather
     else if (key === "work") out.push({ label: "WORK", value: Math.round(a.power!.work).toLocaleString("en-US"), unit: "kJ" });
     else if (key === "tss") out.push({ label: "TSS", value: String(Math.round(a.power!.tss!)) });
     else if (key === "calories") out.push({ label: "CALORIES", value: Math.round(sm.calories!).toLocaleString("en-US"), unit: "kcal" });
-    else if (key === "weather" && weather) {
+    else if (key === "wind" && weather) {
+      const wa = windAlong(a, weather);
+      if (wa) out.push({ label: "WIND", value: String(Math.round(u === "metric" ? wa.speed : wa.speed / 1.609344)), unit: `${u === "metric" ? "km/h" : "mph"} ${compass(wa.from)}` });
+    } else if (key === "weather" && weather) {
       const w = weatherSummary(weather, a.samples[0].time, a.samples[a.n - 1].time);
       out.push({ label: "WEATHER", value: formatTemp(w.temp, u), unit: weatherText(w.code).toLowerCase() });
     }

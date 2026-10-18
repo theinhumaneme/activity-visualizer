@@ -17,6 +17,7 @@ import { LOOKS, type LookId, flyoverStyle } from "../lib/map/style";
 import { planTiles, preloadTiles, releaseTiles, retryTiles } from "../lib/map/tileFetch";
 import { FlyoverRenderer, addFlyoverLayers } from "../lib/playback/renderer";
 import { type PhotoPage, withPhotoStops } from "../lib/playback/photoStops";
+import { GLOBE_SECONDS, withGlobeIntro } from "../lib/playback/globeIntro";
 import { CAMERA_DISTANCES, CHASE_LENGTHS, cameraDistanceScale, lengthLabel, suggestedLength } from "../lib/playback/lengths";
 import { CAMERA_OPTIONS, type CameraMode, type FrameState, type Timeline, autoExaggeration, buildTimeline } from "../lib/playback/timeline";
 import { DEFAULT_PRIVACY_RADIUS, useStore } from "../state/store";
@@ -24,11 +25,13 @@ import { DEFAULT_PRIVACY_RADIUS, useStore } from "../state/store";
 const SPEEDS = ["0.5", "1", "2", "4"] as const;
 
 /** Preview frame: the wide page view, or the shape of a portrait / square export. */
-type Shape = "wide" | "9:16" | "1:1";
+type Shape = "wide" | "9:16" | "4:5" | "1:1" | "21:9";
 const SHAPES: { value: Shape; label: string; style?: CSSProperties }[] = [
   { value: "wide", label: "Landscape" },
   { value: "9:16", label: "Portrait 9:16", style: { width: "min(100%, calc(72dvh * 9 / 16), 460px)", aspectRatio: "9 / 16" } },
+  { value: "4:5", label: "Feed 4:5", style: { width: "min(100%, calc(70dvh * 4 / 5), 560px)", aspectRatio: "4 / 5" } },
   { value: "1:1", label: "Square 1:1", style: { width: "min(100%, 66dvh, 680px)", aspectRatio: "1 / 1" } },
+  { value: "21:9", label: "Cinema 21:9", style: { width: "100%", aspectRatio: "21 / 9" } },
 ];
 const MODES: { value: CameraMode | "free"; label: string; title: string }[] = [
   ...CAMERA_OPTIONS,
@@ -74,6 +77,7 @@ export function FlyoverPage() {
   const setWeatherOn = useStore((s) => s.setWeatherOn);
   const sunLighting = useStore((s) => s.sunLighting);
   const haze = useStore((s) => s.haze);
+  const globeIntro = useStore((s) => s.globeIntro);
   const cameraDistance = useStore((s) => s.cameraDistance);
   const mapDetail = useStore((s) => s.mapDetail);
   const setMapDetail = useStore((s) => s.setMapDetail);
@@ -311,7 +315,7 @@ export function FlyoverPage() {
         elevationAt: terrainGrid ? sampler(terrainGrid, NaN) : null,
       });
       // Photo stops hold the flyover while each photo (or collage) has the screen.
-      const stops = withPhotoStops(base, photosOn ? placement.placed.map((p) => ({ image: p.photo.bitmap, index: p.index })) : []);
+      const stops = withPhotoStops(globeIntro && !reduced ? withGlobeIntro(base) : base, photosOn ? placement.placed.map((p) => ({ image: p.photo.bitmap, index: p.index })) : []);
       timelineRef.current = stops.timeline;
       photoPagesRef.current = stops.pages;
       show(frac * timelineRef.current.duration);
@@ -327,7 +331,7 @@ export function FlyoverPage() {
       ro.disconnect();
       cancelAnimationFrame(pending);
     };
-  }, [ready, a, length, cameraMode, cameraDistance, reduced, exaggeration, terrainGrid, show, schedulePreload, placement, photosOn]);
+  }, [ready, a, length, cameraMode, cameraDistance, reduced, exaggeration, terrainGrid, show, schedulePreload, placement, photosOn, globeIntro]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -336,6 +340,12 @@ export function FlyoverPage() {
       setBuildingsVisible(map, buildings);
     }
   }, [ready, landmarks, buildings]);
+
+  // The globe projection only shows at low zoom (the intro); close in it's the usual flat map.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (ready && map) map.setProjection({ type: globeIntro && !reduced ? "globe" : "mercator" });
+  }, [ready, globeIntro, reduced]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -544,6 +554,18 @@ export function FlyoverPage() {
               value={String(length)}
               onChange={(v) => setLength(Number(v))}
               options={CHASE_LENGTHS.map((l) => ({ value: String(l), label: lengthLabel(l) }))}
+            />
+          </ControlRow>
+          <ControlRow label="Opening" hint={reduced ? "Off while reduced motion is on." : globeIntro ? `Starts on the whole Earth and dives down to the start (+${GLOBE_SECONDS} s).` : undefined}>
+            <Segmented
+              size="sm"
+              label="Opening"
+              value={globeIntro && !reduced ? "globe" : "local"}
+              onChange={(v) => setVideoStats({ globeIntro: v === "globe" })}
+              options={[
+                { value: "local", label: "Over the route" },
+                { value: "globe", label: "From the globe", disabled: reduced },
+              ]}
             />
           </ControlRow>
           <ControlRow label="Place names">

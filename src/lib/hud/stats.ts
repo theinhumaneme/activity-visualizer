@@ -5,8 +5,8 @@ import type { Analysis } from "../analysis/types";
 import { motionLabel, usesPace } from "../format/format";
 import type { Weather } from "../weather";
 
-export type LiveStat = "time" | "moving" | "distance" | "motion" | "hr" | "elev" | "grade" | "cadence" | "power" | "temp";
-export type EndStat = "distance" | "total" | "moving" | "stopped" | "avg" | "best" | "gain" | "loss" | "high" | "avgHr" | "maxHr" | "cadence" | "power" | "np" | "work" | "tss" | "calories" | "weather";
+export type LiveStat = "time" | "moving" | "distance" | "motion" | "hr" | "elev" | "grade" | "cadence" | "power" | "temp" | "wind";
+export type EndStat = "distance" | "total" | "moving" | "stopped" | "avg" | "best" | "gain" | "loss" | "high" | "avgHr" | "maxHr" | "cadence" | "power" | "np" | "work" | "tss" | "calories" | "weather" | "wind";
 
 export const DEFAULT_LIVE: LiveStat[] = ["time", "distance", "motion", "hr", "elev", "grade"];
 export const DEFAULT_END: EndStat[] = ["distance", "total", "avg", "gain", "avgHr"];
@@ -31,6 +31,7 @@ const LIVE: { key: LiveStat; label: (a: Analysis) => string; has: Has }[] = [
   { key: "cadence", label: () => "Cadence", has: (a) => !!a.cadence },
   { key: "power", label: () => "Power", has: hasPower },
   { key: "temp", label: () => "Temperature", has: (a, w) => timed(a) && !!w },
+  { key: "wind", label: () => "Headwind / tailwind", has: (a, w) => timed(a) && !!w },
 ];
 
 const END: { key: EndStat; label: (a: Analysis) => string; has: Has }[] = [
@@ -52,6 +53,7 @@ const END: { key: EndStat; label: (a: Analysis) => string; has: Has }[] = [
   { key: "tss", label: () => "Training stress", has: (a) => a.power?.tss !== undefined },
   { key: "calories", label: () => "Calories", has: (a) => a.summary.calories !== undefined },
   { key: "weather", label: () => "Weather", has: (a, w) => timed(a) && !!w },
+  { key: "wind", label: () => "Wind", has: (a, w) => timed(a) && !!w },
 ];
 
 /** The live stats this activity can show, as picker options (catalog order). */
