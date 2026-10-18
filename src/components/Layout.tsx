@@ -1,5 +1,6 @@
 import { type ReactNode, Suspense, useEffect, useRef, useState } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
+import { install, useIncoming, useInstall } from "../lib/pwa";
 import { useLibrary } from "../state/library";
 import { useStore } from "../state/store";
 import { type ThemePref, useTheme } from "../state/theme";
@@ -14,6 +15,38 @@ function FooterLink({ href, children }: { href: string; children: ReactNode }) {
       {children}
     </a>
   );
+}
+
+/** Activity files opened with or shared to the installed app: one goes to Check, several to the library. */
+function IncomingFiles() {
+  const files = useIncoming((s) => s.files);
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!files?.length) return;
+    useIncoming.setState({ files: null });
+    if (files.length === 1) void useStore.getState().loadFile(files[0]).then((ok) => ok && navigate("/check"));
+    else {
+      void useLibrary.getState().addFiles(files);
+      navigate("/library");
+    }
+  }, [files, navigate]);
+  return null;
+}
+
+function InstallApp() {
+  const { prompt, iosHint, installed } = useInstall();
+  if (installed) return null;
+  if (prompt)
+    return (
+      <p className="mt-3">
+        <button type="button" className="btn btn-sm btn-quiet" onClick={() => void install()}>
+          Install the app
+        </button>{" "}
+        — works offline and opens your GPX and TCX files.
+      </p>
+    );
+  if (iosHint) return <p className="mt-1.5">Install it: Share → Add to Home Screen.</p>;
+  return null;
 }
 
 type StepState = "current" | "done" | "available" | "locked";
@@ -100,6 +133,7 @@ export function Layout() {
           <Outlet />
         </Suspense>
       </main>
+      <IncomingFiles />
       <footer className="border-t border-grid px-4 py-6 text-center text-label text-muted">
         <p>Your files are processed in your browser and never uploaded.</p>
         <p className="mt-1.5">
@@ -112,6 +146,7 @@ export function Layout() {
           Made by <FooterLink href="https://github.com/theinhumaneme">Kalyan Mudumby</FooterLink> ·{" "}
           <FooterLink href={`${REPO}/blob/main/LICENSE`}>MIT License</FooterLink> · <FooterLink href={REPO}>Source on GitHub</FooterLink>
         </p>
+        <InstallApp />
       </footer>
     </div>
   );

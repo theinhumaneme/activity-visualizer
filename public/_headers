@@ -8,3 +8,9 @@
 # The sample activity changes rarely; revalidate after a day.
 /samples/*
   Cache-Control: public, max-age=86400
+
+# The service worker and manifest must be re-checked on every visit, or updates stall.
+/sw.js
+  Cache-Control: no-cache
+/manifest.webmanifest
+  Cache-Control: no-cache
