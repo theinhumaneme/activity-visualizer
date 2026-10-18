@@ -6,7 +6,7 @@ import { motionLabel, usesPace } from "../format/format";
 import type { Weather } from "../weather";
 
 export type LiveStat = "time" | "moving" | "distance" | "motion" | "hr" | "elev" | "grade" | "cadence" | "power" | "temp";
-export type EndStat = "distance" | "total" | "moving" | "stopped" | "avg" | "best" | "gain" | "loss" | "high" | "avgHr" | "maxHr" | "cadence" | "power" | "calories" | "weather";
+export type EndStat = "distance" | "total" | "moving" | "stopped" | "avg" | "best" | "gain" | "loss" | "high" | "avgHr" | "maxHr" | "cadence" | "power" | "np" | "work" | "tss" | "calories" | "weather";
 
 export const DEFAULT_LIVE: LiveStat[] = ["time", "distance", "motion", "hr", "elev", "grade"];
 export const DEFAULT_END: EndStat[] = ["distance", "total", "avg", "gain", "avgHr"];
@@ -47,6 +47,9 @@ const END: { key: EndStat; label: (a: Analysis) => string; has: Has }[] = [
   { key: "maxHr", label: () => "Max heart rate", has: (a) => a.summary.maxHr !== undefined },
   { key: "cadence", label: () => "Avg cadence", has: (a) => a.summary.avgCadence !== undefined },
   { key: "power", label: () => "Avg power", has: hasPower },
+  { key: "np", label: () => "Normalized power", has: (a) => !!a.power },
+  { key: "work", label: () => "Work (kJ)", has: (a) => !!a.power },
+  { key: "tss", label: () => "Training stress", has: (a) => a.power?.tss !== undefined },
   { key: "calories", label: () => "Calories", has: (a) => a.summary.calories !== undefined },
   { key: "weather", label: () => "Weather", has: (a, w) => timed(a) && !!w },
 ];

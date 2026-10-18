@@ -659,6 +659,9 @@ function endStats(a: Analysis, chosen: readonly EndStat[] = DEFAULT_END, weather
     else if (key === "maxHr") out.push({ label: "MAX HR", value: String(Math.round(sm.maxHr!)), unit: "bpm" });
     else if (key === "cadence") out.push({ label: "AVG CADENCE", value: String(Math.round(sm.avgCadence!)), unit: SPORTS[kind].footCadence ? "spm" : "rpm" });
     else if (key === "power") out.push({ label: "AVG POWER", value: String(Math.round(sm.avgPower!)), unit: "W" });
+    else if (key === "np") out.push({ label: "NORM POWER", value: String(Math.round(a.power!.np)), unit: "W" });
+    else if (key === "work") out.push({ label: "WORK", value: Math.round(a.power!.work).toLocaleString("en-US"), unit: "kJ" });
+    else if (key === "tss") out.push({ label: "TSS", value: String(Math.round(a.power!.tss!)) });
     else if (key === "calories") out.push({ label: "CALORIES", value: Math.round(sm.calories!).toLocaleString("en-US"), unit: "kcal" });
     else if (key === "weather" && weather) {
       const w = weatherSummary(weather, a.samples[0].time, a.samples[a.n - 1].time);

@@ -263,6 +263,37 @@ export function CheckPage() {
                 </section>
               )}
 
+              {a.power && (
+                <section className="border-t border-grid pt-6">
+                  <GroupHeading aside={a.power.ftpEstimated && a.power.ftp > 0 && <Tag tone="warning" title="95% of your best 20 minutes in this ride">Estimated</Tag>}>Power</GroupHeading>
+                  <Field label="FTP">
+                    <span className="relative block">
+                      <input
+                        type="number"
+                        min={50}
+                        max={600}
+                        className="field pr-10 tabular"
+                        placeholder={a.power.ftp > 0 ? String(a.power.ftp) : "e.g. 250"}
+                        defaultValue={settings.ftp > 0 ? settings.ftp : ""}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          if (e.target.value === "") updateSettings({ ftp: 0 });
+                          else if (v >= 50 && v <= 600) updateSettings({ ftp: v });
+                        }}
+                      />
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-label text-muted">W</span>
+                    </span>
+                  </Field>
+                  <p className="mt-3 text-sm text-ink-2">
+                    {settings.ftp > 0
+                      ? "Remembered for your next rides. Clear it to estimate from each ride instead."
+                      : a.power.ftp > 0
+                        ? `Estimated at ${a.power.ftp} W from your best 20 minutes. Enter your real FTP for accurate zones and training stress.`
+                        : "Too short to estimate. Enter your FTP to see power zones and training stress."}
+                  </p>
+                </section>
+              )}
+
               {!routeOnly && (
                 <section className="border-t border-grid pt-6">
                   <GroupHeading>Trim</GroupHeading>

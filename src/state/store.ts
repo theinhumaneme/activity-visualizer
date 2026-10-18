@@ -27,6 +27,7 @@ const LOOK_KEY = "rv:look";
 const STATS_KEY = "rv:video-stats";
 const DETAIL_KEY = "rv:map-detail";
 const WEATHER_KEY = "rv:weather";
+const FTP_KEY = "rv:ftp";
 const LOOK_IDS: LookId[] = ["night", "golden", "editorial", "satellite", "noir", "bluehour", "blueprint"];
 
 function storedLook(): LookId {
@@ -176,6 +177,17 @@ function storedUnits(): Units {
   return defaultUnits();
 }
 
+/** The rider's FTP, watts (0 = estimate from each ride). */
+function storedFtp(): number {
+  try {
+    const v = Number(localStorage.getItem(FTP_KEY));
+    if (v >= 50 && v <= 600) return v;
+  } catch {
+    // Storage unavailable.
+  }
+  return 0;
+}
+
 let demAbort: AbortController | null = null;
 /** Bumped by each activity switch (and reset): a switch lands only if no newer one started. */
 let selection = 0;
@@ -221,7 +233,7 @@ export const useStore = create<State>((set, get) => {
   /** Switches to an activity once its first analysis is ready, so pages never see a mismatched pair. */
   async function selectActivity(activity: Activity) {
     const mine = ++selection;
-    const settings = defaultSettings(activity, storedUnits(), storedPrivacy());
+    const settings = defaultSettings(activity, storedUnits(), storedPrivacy(), storedFtp());
     const first = await analyzeOffThread(activity, settings, null);
     if (!first || mine !== selection) return;
     demAbort?.abort();
@@ -372,6 +384,13 @@ export const useStore = create<State>((set, get) => {
       if (patch.privacyRadius !== undefined) {
         try {
           localStorage.setItem(PRIVACY_KEY, String(patch.privacyRadius));
+        } catch {
+          // Not critical.
+        }
+      }
+      if (patch.ftp !== undefined) {
+        try {
+          localStorage.setItem(FTP_KEY, String(patch.ftp));
         } catch {
           // Not critical.
         }

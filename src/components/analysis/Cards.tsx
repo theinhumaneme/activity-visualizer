@@ -200,7 +200,7 @@ export function EffortCard({ a }: { a: Analysis }) {
             sub={s.strideLength ? `stride ${s.strideLength.toFixed(2)} m` : undefined}
           />
         )}
-        {s.avgPower !== undefined && <Stat label="Power" value={`${Math.round(s.avgPower)} W`} />}
+        {s.avgPower !== undefined && <Stat label="Power" value={`${Math.round(s.avgPower)} W`} sub={a.power ? `normalized ${Math.round(a.power.np)} W` : undefined} />}
         {a.slowdowns.length > 0 && (
           <Stat
             label="Slowdowns"

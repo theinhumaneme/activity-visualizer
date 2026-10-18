@@ -6,6 +6,7 @@ import { ElevationProfile } from "../components/analysis/ElevationProfile";
 import { HeartRateChart, ZoneBreakdown } from "../components/analysis/HeartRate";
 import { IntervalsPanel } from "../components/analysis/IntervalsPanel";
 import { PaceChart } from "../components/analysis/PaceChart";
+import { PowerChart, PowerCurve, PowerSummary, PowerZones } from "../components/analysis/Power";
 import { SplitsTable } from "../components/analysis/SplitsTable";
 import { SummaryHeader } from "../components/analysis/SummaryHeader";
 import { NextStep, Page, SectionHeading, Segmented } from "../components/ui";
@@ -59,6 +60,7 @@ export function AnalysisPage() {
     ...(a.intervals ? [{ id: "intervals", label: "Intervals" }] : []),
     ...(!routeOnly || a.elev ? [{ id: "splits", label: "Splits" }] : []),
     ...(hasZones ? [{ id: "zones", label: "HR zones" }] : []),
+    ...(a.power ? [{ id: "power", label: "Power" }] : []),
     ...(!routeOnly ? [{ id: "efforts", label: "Best efforts" }] : []),
     ...(!routeOnly ? [{ id: "efficiency", label: "Efficiency" }] : []),
   ];
@@ -124,6 +126,7 @@ export function AnalysisPage() {
             {!routeOnly && <PaceChart a={a} />}
             {a.elev && <ElevationProfile a={a} />}
             {hasZones && <HeartRateChart a={a} />}
+            {a.power && <PowerChart a={a} />}
             {!routeOnly && a.cadence && <CadenceChart a={a} />}
           </section>
 
@@ -145,6 +148,17 @@ export function AnalysisPage() {
             <section aria-labelledby="zones-h">
               <SectionHeading id="zones" title={<span id="zones-h">Heart-rate zones</span>} />
               <ZoneBreakdown a={a} />
+            </section>
+          )}
+
+          {a.power && (
+            <section aria-labelledby="power-h" className="space-y-4">
+              <SectionHeading id="power" title={<span id="power-h">Power</span>} />
+              <PowerSummary a={a} />
+              <div className="grid gap-4 xl:grid-cols-2">
+                <PowerCurve a={a} />
+                {a.power.zones.length > 0 && <PowerZones a={a} />}
+              </div>
             </section>
           )}
 

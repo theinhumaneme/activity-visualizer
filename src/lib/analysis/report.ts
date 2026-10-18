@@ -278,6 +278,21 @@ export function buildInsights(a: Analysis): { insights: Insight[]; headline: str
     });
   }
 
+  const p = a.power;
+  if (p) {
+    out.push({
+      title: "Normalized power",
+      value: `${Math.round(p.np)} W`,
+      text:
+        p.intensity !== undefined
+          ? `${Math.round(p.intensity * 100)}% of ${p.ftpEstimated ? "an estimated " : ""}FTP (${p.ftp} W) for ${Math.round(p.tss!)} training stress; average ${Math.round(p.avg)} W.`
+          : `Average ${Math.round(p.avg)} W, ${Math.round(p.work).toLocaleString("en-US")} kJ of work.`,
+      weight: 72,
+    });
+    const best20 = p.curve.find((c) => c.seconds === 1200);
+    if (best20) out.push({ title: "Best 20 minutes", value: `${Math.round(best20.watts)} W`, text: "your highest 20-minute average power in this ride.", weight: 58 });
+  }
+
   const longest = a.bestEfforts[a.bestEfforts.length - 1];
   if (longest)
     out.push({

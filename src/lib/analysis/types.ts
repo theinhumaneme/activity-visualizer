@@ -3,6 +3,7 @@ import type { CleaningReport } from "./clean";
 import type { Climb } from "./climbs";
 import type { Intervals } from "./intervals";
 import type { Moment } from "./moments";
+import type { PowerAnalysis } from "./power";
 import type { Privacy } from "./privacy";
 
 export type Units = "metric" | "imperial";
@@ -21,6 +22,8 @@ export interface Settings {
   maxHrEstimated: boolean;
   /** Privacy circle around start and finish, meters (0 = off). Hides geometry, never stats. */
   privacyRadius: number;
+  /** Functional threshold power, watts (0 = estimate from the activity). */
+  ftp: number;
 }
 
 export interface Split {
@@ -148,6 +151,8 @@ export interface Analysis {
   slowdowns: Slowdown[];
   intervals: Intervals | null;
   climbs: Climb[];
+  /** Power-meter analysis (null without power data). */
+  power: PowerAnalysis | null;
   /** Notable points for the flyover and copy (fastest split, high point, reps…). */
   moments: Moment[];
   privacy: Privacy;

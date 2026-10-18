@@ -6,6 +6,7 @@ import { detectClimbs } from "./climbs";
 import { ELEV_SMOOTH_HALF, resolveElevation } from "./elevation";
 import { detectIntervals } from "./intervals";
 import { findMoments } from "./moments";
+import { computePower } from "./power";
 import { computePrivacy } from "./privacy";
 import { buildInsights, buildQuality } from "./report";
 import { atIndex, indexAtDist, indexAtDistCursor, interpCursor } from "./series";
@@ -25,7 +26,7 @@ export const ELEV_HYSTERESIS = 2.5;
  */
 export const minetti = (g: number) => 155.4 * g ** 5 - 30.4 * g ** 4 - 43.3 * g ** 3 + 46.3 * g ** 2 + 19.5 * g + 3.6;
 
-export function defaultSettings(activity: Activity, units: Units, privacyRadius = 0): Settings {
+export function defaultSettings(activity: Activity, units: Units, privacyRadius = 0, ftp = 0): Settings {
   let observed = 0;
   for (const s of activity.samples) if (s.hr && s.hr > observed) observed = s.hr;
   return {
@@ -39,6 +40,7 @@ export function defaultSettings(activity: Activity, units: Units, privacyRadius 
     trimEnd: 0,
     maxHrEstimated: true,
     privacyRadius,
+    ftp,
   };
 }
 
@@ -328,6 +330,7 @@ export function analyze(activity: Activity, settings: Settings, demAll: Float64A
     slowdowns,
     intervals,
     climbs,
+    power: activity.routeOnly ? null : computePower(samples, t, settings.ftp ?? 0),
     moments: [],
     privacy,
     cleaning: {
