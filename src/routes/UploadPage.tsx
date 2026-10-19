@@ -1,5 +1,5 @@
-import { type ReactNode, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 import { FEATURE_ART } from "../components/FeatureArt";
 import { SamplePreview } from "../components/SamplePreview";
 import { useOpenActivity } from "../components/steps";
@@ -184,6 +184,18 @@ export function UploadPage() {
     setPending("sample");
     if (await loadSample()) openActivity();
   }
+
+  // "/?sample" (the README's demo link) opens the sample straight into the flyover.
+  const [params, setParams] = useSearchParams();
+  const wantsSample = params.has("sample");
+  const sampleAsked = useRef(false);
+  useEffect(() => {
+    if (!wantsSample || sampleAsked.current) return;
+    sampleAsked.current = true;
+    setParams({}, { replace: true });
+    void sample();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsSample]);
 
   const state = loading ? "loading" : dragging ? "dragging" : "idle";
 

@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router";
-import { useStore } from "../state/store";
+import { type Highlight, useStore } from "../state/store";
 
 export const STEPS = [
   { path: "/", label: "Upload" },
@@ -11,8 +11,11 @@ export const STEPS = [
   { path: "/export", label: "Export" },
 ] as const;
 
-/** Navigation state that asks the flyover to start playing as soon as it can. */
-export type FlyoverArrival = { autoplay?: boolean };
+/**
+ * Navigation state for the flyover: start playing as soon as it can (a fresh upload), or fly one
+ * stretch picked on Analysis, starting just before it and pausing just after.
+ */
+export type FlyoverArrival = { autoplay?: boolean; focus?: Highlight };
 
 /**
  * Goes where a newly opened activity should land: straight into the flyover, playing, unless

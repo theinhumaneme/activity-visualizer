@@ -31,6 +31,7 @@ import { SPORTS } from "../sport";
 import { DEFAULT_END, DEFAULT_LIVE, type EndStat, type LiveStat, pickEnd, pickLive } from "./stats";
 import { type Weather, compass, formatTemp, weatherAt, weatherSummary, weatherText } from "../weather";
 import { windAlong, windLabel } from "../wind";
+import { comparisonText, headlineComparison } from "../compare";
 
 // The app's typeface, so overlays and exports match the interface. Titles are Inter at a heavier weight.
 export const FONT_SANS = '"Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
@@ -79,6 +80,16 @@ export interface HudOptions {
   ghosts?: readonly GhostRunner[] | null;
   /** Photo stops: pages of photos that take over the screen while the flyover holds. */
   photoPages?: readonly PhotoPage[] | null;
+  /** A playful scale under the end card's date ("Climbed ≈ 2.4 Eiffel Towers"); default off. */
+  comparison?: boolean;
+  /** "Activity Visualizer" in the footer and "Made with …" plus the site's address on the end card (default on). */
+  credit?: boolean;
+}
+
+/** Where the app is served, for the end card's credit; nothing on a local dev server. */
+function siteHost(): string | null {
+  if (typeof location === "undefined" || /^(localhost|127\.|\[::1\]|.*\.localhost$)/.test(location.hostname)) return null;
+  return location.host;
 }
 
 interface Palette {
@@ -741,13 +752,16 @@ function drawEndCard(
   ctx.globalAlpha = alpha;
 
   const stats = endStats(a, o.endStats, o.weather);
+  const cmp = o.comparison ? headlineComparison(a.summary) : null;
+  const cmpH = cmp ? 40 * s : 0;
+  const creditH = o.credit !== false ? 40 * s : 0;
   const cols = portrait ? 2 : Math.min(stats.length, W > H * 1.3 ? 5 : 3);
   const rows = Math.ceil(stats.length / cols);
   const pad = 64 * s;
   const cellW = (W - 2 * pad) / cols;
   const cellH = 118 * s;
   const stripH = 90 * s;
-  const blockH = 210 * s + rows * cellH + stripH;
+  const blockH = 210 * s + rows * cellH + stripH + cmpH + creditH;
   const top = Math.max(safeTop, safeBottom - blockH);
   const lift = (1 - alpha) * 30 * s;
 
@@ -759,7 +773,7 @@ function drawEndCard(
   const lines = wrap(ctx, a.settings.name, W - 2 * pad, 2);
   // One glass card behind the summary: the lit route stays fully visible above it.
   const cardTop = top - 30 * s + lift;
-  const cardBottom = top + size * lines.length + 90 * s + rows * cellH + stripH + lift;
+  const cardBottom = top + size * lines.length + 90 * s + rows * cellH + stripH + cmpH + creditH + lift;
   panel(ctx, pad * 0.5, cardTop, W - pad, cardBottom - cardTop, 26 * s, P);
   ctx.fillStyle = P.hi;
   ctx.font = `${titleWeight(titleFont)} ${size}px ${titleFont}`;
@@ -777,8 +791,9 @@ function drawEndCard(
   );
   ctx.fillStyle = o.accent;
   ctx.fillRect(pad, subY + 20 * s, 72 * s, 5 * s);
+  if (cmp) spaced(ctx, comparisonText(cmp).toUpperCase(), pad, subY + 64 * s, 17 * s, P.hi, 600);
 
-  const gy = subY + 56 * s;
+  const gy = subY + 56 * s + cmpH;
   stats.forEach((st, k) => {
     const cx = pad + (k % cols) * cellW;
     const cy = gy + Math.floor(k / cols) * cellH;
@@ -793,6 +808,13 @@ function drawEndCard(
     }
   });
   drawStrip(ctx, a, a.n - 1, pad, gy + rows * cellH + 10 * s, W - 2 * pad, stripH - 30 * s, s, o.accent, P);
+  if (creditH) {
+    const host = siteHost();
+    ctx.font = `500 ${16 * s}px ${FONT_SANS}`;
+    ctx.fillStyle = P.mid;
+    ctx.textAlign = "right";
+    ctx.fillText(truncate(ctx, `Made with Activity Visualizer${host ? ` · ${host}` : ""}`, W - 2 * pad), W - pad, cardBottom - 22 * s);
+  }
   ctx.restore();
 }
 
@@ -843,7 +865,7 @@ function endStats(a: Analysis, chosen: readonly EndStat[] = DEFAULT_END, weather
 function drawFooter(ctx: CanvasRenderingContext2D, W: number, H: number, s: number, o: HudOptions, P: Palette) {
   // Identical on every frame: drawn once (shadow and all) and stamped.
   const top = H - 50 * s;
-  stamp(ctx, `footer|${W}|${H}|${o.attribution}|${P.mid}|${P.scrim}`, 0, top, W, H - top, (c) => drawFooterText(c, W, H, s, o, P));
+  stamp(ctx, `footer|${W}|${H}|${o.attribution}|${o.credit !== false}|${P.mid}|${P.scrim}`, 0, top, W, H - top, (c) => drawFooterText(c, W, H, s, o, P));
 }
 
 function drawFooterText(ctx: CanvasRenderingContext2D, W: number, H: number, s: number, o: HudOptions, P: Palette) {
@@ -854,7 +876,7 @@ function drawFooterText(ctx: CanvasRenderingContext2D, W: number, H: number, s: 
   ctx.textAlign = "right";
   ctx.fillText(truncate(ctx, o.attribution, W * 0.66), W - 16 * s, H - 16 * s);
   ctx.textAlign = "left";
-  spaced(ctx, "ACTIVITY VISUALIZER", 16 * s, H - 16 * s, 13 * s, P.mid, 700);
+  if (o.credit !== false) spaced(ctx, "ACTIVITY VISUALIZER", 16 * s, H - 16 * s, 13 * s, P.mid, 700);
   ctx.restore();
 }
 

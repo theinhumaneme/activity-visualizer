@@ -12,6 +12,7 @@ import { SummaryHeader } from "../components/analysis/SummaryHeader";
 import { WindSection } from "../components/analysis/Wind";
 import { NextStep, Page, SectionHeading, Segmented } from "../components/ui";
 import { useStore } from "../state/store";
+import { Comparisons } from "../components/analysis/Comparisons";
 
 /** The section whose heading was scrolled past last (under the sticky bars), for the section links. */
 function useActiveSection(ids: string[]) {
@@ -71,10 +72,11 @@ export function AnalysisPage() {
   return (
     <Page
       title="Analysis"
-      subtitle={routeOnly ? "Hover the profile or the map: they move together." : "Hover any chart, split or the map: everything moves together."}
+      subtitle={routeOnly ? "Hover the profile or the map: they move together." : "Hover any chart, split or the map: everything moves together. Click a split, climb, rep or best effort to watch it in 3D."}
       wide
     >
       <SummaryHeader a={a} variant="strip" />
+      <Comparisons a={a} className="mt-3" />
 
       <nav
         aria-label="Sections"
@@ -141,7 +143,7 @@ export function AnalysisPage() {
 
           {(!routeOnly || a.elev) && (
             <section aria-labelledby="splits-h">
-              <SectionHeading id="splits" title={<span id="splits-h">Splits</span>} description="Hover or focus a split to find it on the map and charts." />
+              <SectionHeading id="splits" title={<span id="splits-h">Splits</span>} description="Hover a split to find it on the map and charts; click it to watch it in 3D." />
               <SplitsTable a={a} />
             </section>
           )}

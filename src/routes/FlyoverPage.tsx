@@ -25,6 +25,9 @@ import { CAMERA_OPTIONS, type CameraMode, type FrameState, type Timeline, autoEx
 import { DEFAULT_PRIVACY_RADIUS, useStore } from "../state/store";
 
 const SPEEDS = ["0.5", "1", "2", "4"] as const;
+/** Video seconds shown before and after a stretch picked on Analysis. */
+const FOCUS_RUN_UP = 1.5;
+const FOCUS_RUN_OUT = 0.75;
 
 /** Preview frame: the wide page view, or the shape of a portrait / square export. */
 type Shape = "wide" | "9:16" | "4:5" | "1:1" | "21:9";
@@ -80,6 +83,8 @@ export function FlyoverPage() {
   const sunLighting = useStore((s) => s.sunLighting);
   const haze = useStore((s) => s.haze);
   const globeIntro = useStore((s) => s.globeIntro);
+  const comparisons = useStore((s) => s.comparisons);
+  const credit = useStore((s) => s.credit);
   const cameraDistance = useStore((s) => s.cameraDistance);
   const mapDetail = useStore((s) => s.mapDetail);
   const setMapDetail = useStore((s) => s.setMapDetail);
@@ -91,12 +96,18 @@ export function FlyoverPage() {
   const look = LOOKS[lookId];
   const location = useLocation();
   const navigate = useNavigate();
+  const arrival = location.state as FlyoverArrival | null;
   /** Set on arrival from a fresh upload; not under reduced motion, where nothing should move unasked. */
-  const autoplay = useRef(!!(location.state as FlyoverArrival | null)?.autoplay && !reduced);
+  const autoplay = useRef(!!arrival?.autoplay && !reduced);
+  /** A stretch picked on Analysis, flown once the map is up (a click asked for it, so reduced motion too). */
+  const [focus, setFocus] = useState(arrival?.focus ?? null);
+  const focusPending = useRef(!!arrival?.focus);
+  /** Video time to pause at, just past the focused stretch (null once it's been flown). */
+  const focusEnd = useRef<number | null>(null);
   // Consume the request, so a refresh or coming back to this step doesn't start it again.
   useEffect(() => {
-    if ((location.state as FlyoverArrival | null)?.autoplay) navigate(location.pathname, { replace: true, state: null });
-  }, [location, navigate]);
+    if (arrival?.autoplay || arrival?.focus) navigate(location.pathname, { replace: true, state: null });
+  }, [arrival, location.pathname, navigate]);
 
   const container = useRef<HTMLDivElement>(null);
   const hud = useRef<HTMLCanvasElement>(null);
@@ -154,6 +165,8 @@ export function FlyoverPage() {
         weather,
         ghosts: ghostsOn ? ghosts : null,
         photoPages: photoPagesRef.current,
+        comparison: comparisons,
+        credit,
         attribution: "",
         // Keep the stats clear of the map's own attribution control.
         bottomInset: 40 * dpr,
@@ -164,7 +177,7 @@ export function FlyoverPage() {
         },
       });
     },
-    [a, look, routeColor, exaggeration, liveStats, endStats, highlights, weather, ghosts, ghostsOn, placement, photosOn],
+    [a, look, routeColor, exaggeration, liveStats, endStats, highlights, weather, ghosts, ghostsOn, placement, photosOn, comparisons, credit],
   );
 
   /**
@@ -397,9 +410,12 @@ export function FlyoverPage() {
       const T = tRef.current + ((now - last) / 1000) * Number(speed);
       last = now;
       const end = T >= tl.duration;
-      show(T, !end);
-      if (end) setPlaying(false);
-      else raf = requestAnimationFrame(tick);
+      const held = focusEnd.current !== null && T >= focusEnd.current;
+      show(T, !(end || held));
+      if (end || held) {
+        focusEnd.current = null;
+        setPlaying(false);
+      } else raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
@@ -424,15 +440,27 @@ export function FlyoverPage() {
     // Pausing: bring the (throttled) time label and scrubber to the exact frame shown.
     if (playing) show(tRef.current);
     autoplay.current = false;
+    // Playing on after the focused stretch has been flown: back to the whole flight.
+    if (!playing && focusEnd.current === null) setFocus(null);
     setPlaying((p) => !p);
   }, [playing, show]);
 
   // Opened straight from Upload or the library: start the flight once the first view has loaded.
+  // Opened from a split or climb on Analysis: fly that stretch, with a short run-up, and pause after it.
   useEffect(() => {
-    if (!autoplay.current || !ready || loadingTiles || a.privacy.empty || !timelineRef.current) return;
-    autoplay.current = false;
-    setPlaying(true);
-  }, [ready, loadingTiles, a.privacy.empty]);
+    const tl = timelineRef.current;
+    if (!ready || loadingTiles || a.privacy.empty || !tl) return;
+    if (focusPending.current && focus) {
+      focusPending.current = false;
+      autoplay.current = false;
+      show(Math.max(tl.marks.chase, tl.timeAtIndex(focus.from) - FOCUS_RUN_UP));
+      focusEnd.current = Math.min(tl.duration, tl.timeAtIndex(focus.to) + FOCUS_RUN_OUT);
+      setPlaying(true);
+    } else if (autoplay.current) {
+      autoplay.current = false;
+      setPlaying(true);
+    }
+  }, [ready, loadingTiles, a.privacy.empty, focus, show]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -478,6 +506,14 @@ export function FlyoverPage() {
             {/* Sized with h-full/w-full: MapLibre makes its container position: relative. */}
             <div ref={container} className={`h-full w-full ${free ? "cursor-grab" : ""}`} />
             <canvas ref={hud} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden />
+            {focus && (
+              <div className="absolute left-3 top-3 flex max-w-[calc(100%-1.5rem)] items-center gap-2 rounded-full bg-black/65 py-1 pl-3 pr-1 text-[13px] font-medium text-white backdrop-blur-sm">
+                <span className="truncate">{focus.label}</span>
+                <Link to="/analysis" className="shrink-0 rounded-full bg-white/15 px-2.5 py-0.5 hover:bg-white/25">
+                  ← Analysis
+                </Link>
+              </div>
+            )}
             {preload && preload.total > 0 && (
               <div className="pointer-events-none absolute bottom-10 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/60 px-3 py-1 text-[12px] font-medium text-white/90 tabular" aria-live="polite">
                 Preloading the flight · {Math.round((preload.done / preload.total) * 100)}%

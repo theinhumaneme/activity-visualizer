@@ -16,6 +16,7 @@ import { LOOKS, type LookId } from "../lib/map/style";
 import { CAMERA_DISTANCES, CHASE_LENGTHS, cameraDistanceScale, lengthLabel, suggestedLength } from "../lib/playback/lengths";
 import { CAMERA_OPTIONS, type CameraMode, autoExaggeration } from "../lib/playback/timeline";
 import { useStore } from "../state/store";
+import { comparisonText, headlineComparison } from "../lib/compare";
 
 const ASPECTS: { value: Aspect; label: string; name: string; hint: string; box: [number, number] }[] = [
   { value: "9:16", label: "9:16", name: "Portrait", hint: "Reels, Stories", box: [11, 20] },
@@ -61,6 +62,8 @@ export function ExportPage() {
   const weather = useStore((s) => s.weather);
   const haze = useStore((s) => s.haze);
   const globeIntro = useStore((s) => s.globeIntro);
+  const comparisons = useStore((s) => s.comparisons);
+  const credit = useStore((s) => s.credit);
   const ghosts = useStore((s) => s.ghosts);
   const photos = useStore((s) => s.photos);
   const photosOn = useStore((s) => s.photosOn);
@@ -152,6 +155,8 @@ export function ExportPage() {
       haze,
       globeIntro,
       endCard,
+      comparison: comparisons,
+      credit,
       fps,
       terrain,
     };
@@ -279,6 +284,22 @@ export function ExportPage() {
                     <ChipSelect label="End card stats" value={endStats} max={MAX_END} onChange={(v) => setVideoStats({ endStats: v })} options={endOptions(a, weather)} />
                   </ControlRow>
                 )}
+                <div className="space-y-2 pt-1 text-[15px]">
+                  {(kind === "poster" || endCard) && headlineComparison(a.summary) && (
+                    <label className="flex items-center gap-2.5">
+                      <input type="checkbox" checked={comparisons} onChange={(e) => setVideoStats({ comparisons: e.target.checked })} />
+                      <span>
+                        Fun comparison <span className="text-muted">· {comparisonText(headlineComparison(a.summary)!)}</span>
+                      </span>
+                    </label>
+                  )}
+                  <label className="flex items-center gap-2.5">
+                    <input type="checkbox" checked={credit} onChange={(e) => setVideoStats({ credit: e.target.checked })} />
+                    <span>
+                      Credit <span className="text-muted">· “Made with Activity Visualizer” and its link</span>
+                    </span>
+                  </label>
+                </div>
                 {kind === "video" && !stats && !endCard && <p className="text-label text-muted">Turn on live stats or the end card under Video to choose what they show.</p>}
               </div>
             </section>
@@ -353,6 +374,7 @@ export function ExportPage() {
                         <input type="checkbox" checked={endCard} onChange={(e) => setEndCard(e.target.checked)} />
                         End card with totals
                       </label>
+
                       <label className="flex items-center gap-2.5">
                         <input type="checkbox" checked={highlights} onChange={(e) => setVideoStats({ highlights: e.target.checked })} />
                         Highlights on the map (fastest mile, climbs…)

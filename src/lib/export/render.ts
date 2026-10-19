@@ -53,6 +53,10 @@ export interface ExportOptions {
   sunLighting?: boolean;
   /** Open on the whole globe and dive down to the activity. */
   globeIntro?: boolean;
+  /** A playful scale on the end card or poster ("Climbed ≈ 2.4 Eiffel Towers"). */
+  comparison?: boolean;
+  /** The app's name and address on the frames (default on). */
+  credit?: boolean;
   /** Haze over the distance ("auto": from the weather when it's on, else the look's own). */
   haze?: Haze;
   /** Multiplier on the chase camera distance. */
@@ -258,6 +262,8 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
       ghosts: opts.ghosts,
       photoPages,
       endCard: opts.endCard,
+      comparison: opts.comparison,
+      credit: opts.credit,
       attribution,
       exaggeration: opts.exaggeration,
       project: (at) => {

@@ -1,10 +1,10 @@
 import type { Block, Intervals, Rep } from "../../lib/analysis/intervals";
 import type { Analysis } from "../../lib/analysis/types";
 import { formatDuration, unitLabel, usesPace } from "../../lib/format/format";
-import { useStore } from "../../state/store";
 import { Card, Help, Tag } from "../ui";
 import { consistencyLabel, timelineSpans } from "./math";
 import { formatShortDistance, formatSplitMotion } from "./units";
+import { useStretch } from "./stretch";
 
 const BLOCK_NAME: Record<Block["kind"], string> = { warmup: "Warm-up", work: "Rep", recovery: "Recovery", cooldown: "Cool-down" };
 const BLOCK_CLASS: Record<Block["kind"], string> = {
@@ -25,7 +25,7 @@ function recoveryWord(a: Analysis, pace: number, next?: Block) {
 
 /** Timeline of warm-up, reps, recoveries and cool-down, sized by time. Hover a block to find it. */
 function Timeline({ a, iv }: { a: Analysis; iv: Intervals }) {
-  const setHighlight = useStore((s) => s.setHighlight);
+  const stretch = useStretch();
   const spans = timelineSpans(iv.blocks, a.t);
   let rep = 0;
   return (
@@ -36,11 +36,10 @@ function Timeline({ a, iv }: { a: Analysis; iv: Intervals }) {
         return (
           <div
             key={b.startIdx}
-            className={`absolute border-r border-surface ${BLOCK_CLASS[b.kind]} ${b.kind === "work" ? "inset-y-0" : "inset-y-1.5"} hover:brightness-125`}
+            className={`absolute cursor-pointer border-r border-surface ${BLOCK_CLASS[b.kind]} ${b.kind === "work" ? "inset-y-0" : "inset-y-1.5"} hover:brightness-125`}
             style={{ left: `${spans[k].start * 100}%`, width: `${spans[k].width * 100}%` }}
-            title={`${label} · ${formatDuration(a.t[b.endIdx] - a.t[b.startIdx])}`}
-            onMouseEnter={() => setHighlight({ from: b.startIdx, to: b.endIdx, label })}
-            onMouseLeave={() => setHighlight(null)}
+            {...stretch({ from: b.startIdx, to: b.endIdx, label })}
+            title={`${label} · ${formatDuration(a.t[b.endIdx] - a.t[b.startIdx])} · click to watch in 3D`}
           >
             {b.kind === "work" && spans[k].width > 0.04 && (
               <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold text-white tabular">{n}</span>
@@ -53,7 +52,7 @@ function Timeline({ a, iv }: { a: Analysis; iv: Intervals }) {
 }
 
 function RepCard({ a, iv, rep, fastest, next }: { a: Analysis; iv: Intervals; rep: Rep; fastest: boolean; next?: Block }) {
-  const setHighlight = useStore((s) => s.setHighlight);
+  const stretch = useStretch();
   const r = rep.recovery;
   const drop = r?.hrFrom !== undefined && r?.hrTo !== undefined ? r.hrFrom - r.hrTo : undefined;
   const mean = iv.reps.reduce((x, y) => x + y.pace, 0) / iv.reps.length;
@@ -62,16 +61,12 @@ function RepCard({ a, iv, rep, fastest, next }: { a: Analysis; iv: Intervals; re
   const vsMean = Math.round(perUnit(rep.pace - mean));
   const pace = usesPace(a.activity.kind);
   const label = `Rep ${rep.n} of ${iv.reps.length}`;
-  const highlight = () => setHighlight({ from: rep.startIdx, to: rep.endIdx, label });
 
   return (
     <li
       tabIndex={0}
-      className={`rounded-xl border p-3 outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 ${fastest ? "border-accent/60" : "border-grid"}`}
-      onMouseEnter={highlight}
-      onMouseLeave={() => setHighlight(null)}
-      onFocus={highlight}
-      onBlur={() => setHighlight(null)}
+      className={`cursor-pointer rounded-xl border p-3 outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 ${fastest ? "border-accent/60" : "border-grid"}`}
+      {...stretch({ from: rep.startIdx, to: rep.endIdx, label })}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-label font-medium text-muted">{label}</span>

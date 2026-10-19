@@ -55,11 +55,11 @@ function storedPrivacy(): number {
   return DEFAULT_PRIVACY_RADIUS;
 }
 
-function storedStats(): { liveStats: LiveStat[]; endStats: EndStat[]; highlights: boolean; landmarks: boolean; buildings: boolean; sunLighting: boolean; haze: Haze; globeIntro: boolean } {
+function storedStats(): { liveStats: LiveStat[]; endStats: EndStat[]; highlights: boolean; landmarks: boolean; buildings: boolean; sunLighting: boolean; haze: Haze; globeIntro: boolean; comparisons: boolean; credit: boolean } {
   // 3D buildings default to off where the device is Lite: extrusions are costly to draw.
   const buildingsDefault = resolveDetail(storedDetail()) !== "lite";
   try {
-    const v = JSON.parse(localStorage.getItem(STATS_KEY) ?? "null") as { liveStats?: unknown; endStats?: unknown; highlights?: unknown; landmarks?: unknown; buildings?: unknown; sunLighting?: unknown; haze?: unknown; globeIntro?: unknown } | null;
+    const v = JSON.parse(localStorage.getItem(STATS_KEY) ?? "null") as { liveStats?: unknown; endStats?: unknown; highlights?: unknown; landmarks?: unknown; buildings?: unknown; sunLighting?: unknown; haze?: unknown; globeIntro?: unknown; comparisons?: unknown; credit?: unknown } | null;
     if (v && Array.isArray(v.liveStats) && Array.isArray(v.endStats))
       return {
         liveStats: v.liveStats as LiveStat[],
@@ -70,11 +70,13 @@ function storedStats(): { liveStats: LiveStat[]; endStats: EndStat[]; highlights
         sunLighting: v.sunLighting !== false,
         haze: HAZES.includes(v.haze as Haze) ? (v.haze as Haze) : "auto",
         globeIntro: v.globeIntro === true,
+        comparisons: v.comparisons !== false,
+        credit: v.credit !== false,
       };
   } catch {
     // Storage unavailable or corrupt.
   }
-  return { liveStats: [...DEFAULT_LIVE], endStats: [...DEFAULT_END], highlights: true, landmarks: true, buildings: buildingsDefault, sunLighting: true, haze: "auto", globeIntro: false };
+  return { liveStats: [...DEFAULT_LIVE], endStats: [...DEFAULT_END], highlights: true, landmarks: true, buildings: buildingsDefault, sunLighting: true, haze: "auto", globeIntro: false, comparisons: true, credit: true };
 }
 
 function storedWeatherOn(): boolean {
@@ -164,6 +166,10 @@ interface State {
   haze: Haze;
   /** Open videos from the whole globe, diving down to the activity. */
   globeIntro: boolean;
+  /** Playful scale for the totals ("Climbed ≈ 2.4 Eiffel Towers") on Overview, Analysis and the end card. */
+  comparisons: boolean;
+  /** "Made with Activity Visualizer" and the site's address on videos and posters. */
+  credit: boolean;
   /** Chase camera distance (auto picks by sport). */
   cameraDistance: CameraDistance;
   setCameraDistance(d: CameraDistance): void;
@@ -184,7 +190,7 @@ interface State {
   setXAxis(x: "distance" | "time"): void;
   setLook(l: LookId): void;
   setCameraMode(m: CameraMode | "free"): void;
-  setVideoStats(patch: { liveStats?: LiveStat[]; endStats?: EndStat[]; highlights?: boolean; landmarks?: boolean; buildings?: boolean; sunLighting?: boolean; haze?: Haze; globeIntro?: boolean }): void;
+  setVideoStats(patch: { liveStats?: LiveStat[]; endStats?: EndStat[]; highlights?: boolean; landmarks?: boolean; buildings?: boolean; sunLighting?: boolean; haze?: Haze; globeIntro?: boolean; comparisons?: boolean; credit?: boolean }): void;
   reset(): void;
 }
 
@@ -482,7 +488,7 @@ export const useStore = create<State>((set, get) => {
     setVideoStats(patch) {
       set(patch);
       try {
-        localStorage.setItem(STATS_KEY, JSON.stringify({ liveStats: get().liveStats, endStats: get().endStats, highlights: get().highlights, landmarks: get().landmarks, buildings: get().buildings, sunLighting: get().sunLighting, haze: get().haze, globeIntro: get().globeIntro }));
+        localStorage.setItem(STATS_KEY, JSON.stringify({ liveStats: get().liveStats, endStats: get().endStats, highlights: get().highlights, landmarks: get().landmarks, buildings: get().buildings, sunLighting: get().sunLighting, haze: get().haze, globeIntro: get().globeIntro, comparisons: get().comparisons, credit: get().credit }));
       } catch {
         // Not critical.
       }

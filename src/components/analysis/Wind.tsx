@@ -6,6 +6,7 @@ import { type WindStretch, windAlong } from "../../lib/wind";
 import { useStore } from "../../state/store";
 import { type Band, Chart, type RefLine } from "../Chart";
 import { Card, Help, Stat } from "../ui";
+import { useStretch } from "./stretch";
 
 const HEAD = "#d2463c";
 const TAIL = "#2e9e5e";
@@ -20,7 +21,7 @@ export function WindSection({ a }: { a: Analysis }) {
   const weatherOn = useStore((s) => s.weatherOn);
   const status = useStore((s) => s.weatherStatus);
   const setWeatherOn = useStore((s) => s.setWeatherOn);
-  const setHighlight = useStore((s) => s.setHighlight);
+  const stretch = useStretch();
   const u = a.settings.units;
   const wind = useMemo(() => windAlong(a, weather), [a, weather]);
   const perUnit = u === "metric" ? 1 : 1 / 1.609344;
@@ -69,10 +70,7 @@ export function WindSection({ a }: { a: Analysis }) {
       <button
         type="button"
         className="-m-2 rounded-control p-2 text-left transition-colors hover:bg-surface-2 focus-visible:bg-surface-2"
-        onMouseEnter={() => setHighlight({ from: st.startIdx, to: st.endIdx, label })}
-        onMouseLeave={() => setHighlight(null)}
-        onFocus={() => setHighlight({ from: st.startIdx, to: st.endIdx, label })}
-        onBlur={() => setHighlight(null)}
+        {...stretch({ from: st.startIdx, to: st.endIdx, label })}
       >
         <Stat label={label} value={`${formatWind(Math.abs(st.head), u)}`} sub={`${kind}, ${where(st)}`} />
       </button>

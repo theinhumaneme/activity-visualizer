@@ -9,6 +9,7 @@ import { CHART_FONT, Chart, type Draw, haloText, useChartX } from "../Chart";
 import { Explain, Segmented } from "../ui";
 import { withAlpha } from "./math";
 import { formatShortDistance, motionUnits } from "./units";
+import { useStretch } from "./stretch";
 
 type ColorBy = "grade" | "pace";
 
@@ -25,7 +26,7 @@ const elevNum = (m: number, metric: boolean) => String(Math.round(metric ? m : m
 export function ElevationProfile({ a }: { a: Analysis }) {
   const theme = useTheme((s) => s.theme);
   const xAxis = useStore((s) => s.xAxis);
-  const setHighlight = useStore((s) => s.setHighlight);
+  const stretch = useStretch();
   const [colorBy, setColorBy] = useState<ColorBy>("grade");
   const by: ColorBy = a.activity.routeOnly ? "grade" : colorBy;
   const { x } = useChartX(true);
@@ -171,10 +172,7 @@ export function ElevationProfile({ a }: { a: Analysis }) {
                   <button
                     type="button"
                     className="min-h-8 rounded-full border border-line px-3 text-label text-ink-2 tabular transition-colors hover:bg-surface-2 hover:text-ink focus-visible:bg-surface-2"
-                    onMouseEnter={() => setHighlight({ from: c.startIdx, to: c.endIdx, label: climbLabel(c) })}
-                    onMouseLeave={() => setHighlight(null)}
-                    onFocus={() => setHighlight({ from: c.startIdx, to: c.endIdx, label: climbLabel(c) })}
-                    onBlur={() => setHighlight(null)}
+                    {...stretch({ from: c.startIdx, to: c.endIdx, label: climbLabel(c) })}
                   >
                     {k + 1}. {climbLabel(c)} · +{formatElevation(c.gain, u)} over {formatShortDistance(c.length, a)} · {Math.round(c.grade * 100)}%
                   </button>
@@ -184,7 +182,7 @@ export function ElevationProfile({ a }: { a: Analysis }) {
           )}
           <Explain>
             {a.climbs.length
-              ? `${a.climbs.length} climb${a.climbs.length === 1 ? "" : "s"} (at least 8 m of gain at 2.5% or steeper). Hover one to see it on the map.`
+              ? `${a.climbs.length} climb${a.climbs.length === 1 ? "" : "s"} (at least 8 m of gain at 2.5% or steeper). Hover one to see it on the map, or click to watch it in 3D.`
               : hi - lo < 15
                 ? "Mostly flat. The axis is zoomed in, so read the range above before the shape."
                 : "No sustained climbs (at least 8 m of gain at 2.5% or steeper)."}

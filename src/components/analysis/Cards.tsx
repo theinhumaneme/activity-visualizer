@@ -6,6 +6,7 @@ import { useStore } from "../../state/store";
 import { Chart } from "../Chart";
 import { Card, Explain, Help, Stat } from "../ui";
 import { formatSplitMotion } from "./units";
+import { useStretch } from "./stretch";
 
 /** A stable array: a new one each render made Chart rebuild its uPlot instance. */
 const CADENCE_CLIP: [number, number] = [0.02, 0.98];
@@ -46,7 +47,7 @@ export function CadenceChart({ a }: { a: Analysis }) {
 }
 
 export function BestEfforts({ a }: { a: Analysis }) {
-  const setHighlight = useStore((s) => s.setHighlight);
+  const stretch = useStretch();
   const u = a.settings.units;
   const pace = usesPace(a.activity.kind);
   const th = "pb-2 text-label font-medium text-muted";
@@ -63,16 +64,12 @@ export function BestEfforts({ a }: { a: Analysis }) {
           </thead>
           <tbody>
             {a.bestEfforts.map((b) => {
-              const on = () => setHighlight({ from: b.startIdx, to: b.endIdx, label: `Best ${b.label}` });
               return (
                 <tr
                   key={b.label}
                   tabIndex={0}
-                  className="border-t border-grid outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2"
-                  onMouseEnter={on}
-                  onMouseLeave={() => setHighlight(null)}
-                  onFocus={on}
-                  onBlur={() => setHighlight(null)}
+                  className="cursor-pointer border-t border-grid outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2"
+                  {...stretch({ from: b.startIdx, to: b.endIdx, label: `Best ${b.label}` })}
                 >
                   <td className="py-2.5 pr-2 font-medium text-ink-2">{b.label}</td>
                   <td className="py-2.5 pr-2 text-right font-semibold">{formatDuration(b.seconds)}</td>
@@ -252,7 +249,7 @@ export function HoverReadout({ a, compact }: { a: Analysis; compact?: boolean })
   return (
     <div className="rounded-card border border-grid bg-surface px-3 py-2.5" aria-live="off">
       <div className="mb-1.5 flex items-center justify-between gap-2 text-label">
-        <span className="font-medium text-ink-2">{highlight ? highlight.label : i === null ? "Hover a chart or the route" : "At the cursor"}</span>
+        <span className="font-medium text-ink-2">{highlight ? `${highlight.label} · click to watch in 3D` : i === null ? "Hover a chart or the route" : "At the cursor"}</span>
         {i === null && !highlight && a.stops.length > 0 && <span className="text-muted">Pause markers are stops</span>}
       </div>
       <dl className="grid grid-cols-3 gap-x-3 gap-y-1.5 sm:grid-cols-5">

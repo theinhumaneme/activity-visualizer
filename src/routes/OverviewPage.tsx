@@ -4,6 +4,7 @@ import { WeatherCard } from "../components/WeatherCard";
 import { SummaryHeader, startLine } from "../components/analysis/SummaryHeader";
 import { Card, NextStep, Page, Value, stagger } from "../components/ui";
 import { useStore } from "../state/store";
+import { Comparisons } from "../components/analysis/Comparisons";
 
 const FEATURED = 3;
 
@@ -15,7 +16,10 @@ export function OverviewPage() {
   return (
     <Page title={a.settings.name} subtitle={`${startLine(a)} · ${a.activity.sport}${a.activity.device ? ` · ${a.activity.device}` : ""}`} wide>
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:items-start">
-        <SummaryHeader a={a} showName={false} />
+        <div className="min-w-0 space-y-3">
+          <SummaryHeader a={a} showName={false} />
+          <Comparisons a={a} />
+        </div>
 
         <div className="min-w-0 space-y-3 lg:sticky lg:top-20 lg:col-start-2 lg:row-span-2 lg:row-start-1">
           <RouteMap className="h-[300px] sm:h-[440px] lg:h-[min(560px,calc(100dvh-16rem))]" />

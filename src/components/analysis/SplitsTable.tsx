@@ -1,9 +1,9 @@
 import type { Analysis } from "../../lib/analysis/types";
 import { formatDuration, formatElevation, formatPace, unitLabel, unitLength, usesPace } from "../../lib/format/format";
-import { useStore } from "../../state/store";
 import { Badge, Card, Explain } from "../ui";
 import { splitOffsets } from "./math";
 import { formatSplitMotion } from "./units";
+import { useStretch } from "./stretch";
 
 /**
  * Splits per km / mile. The bar is centered on your average pace: faster splits reach right
@@ -11,7 +11,7 @@ import { formatSplitMotion } from "./units";
  * only marked, never colored as a failure.
  */
 export function SplitsTable({ a }: { a: Analysis }) {
-  const setHighlight = useStore((s) => s.setHighlight);
+  const stretch = useStretch();
   const u = a.settings.units;
   const unit = unitLabel(u);
   const L = unitLength(u);
@@ -76,16 +76,12 @@ export function SplitsTable({ a }: { a: Analysis }) {
               const isFast = sp === fastest;
               const isSlow = sp === slowest;
               const off = partial ? 0 : offsets[k];
-              const on = () => setHighlight({ from: sp.startIdx, to: sp.endIdx, label: `Split ${sp.index}` });
               return (
                 <tr
                   key={sp.index}
                   tabIndex={0}
-                  className={`cursor-default border-t border-grid outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 ${isFast ? "bg-accent/8" : ""}`}
-                  onMouseEnter={on}
-                  onMouseLeave={() => setHighlight(null)}
-                  onFocus={on}
-                  onBlur={() => setHighlight(null)}
+                  className={`cursor-pointer border-t border-grid outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 ${isFast ? "bg-accent/8" : ""}`}
+                  {...stretch({ from: sp.startIdx, to: sp.endIdx, label: `Split ${sp.index}` })}
                 >
                   <td className="py-2.5 pr-3 font-medium text-ink-2">{partial ? (sp.distance / L).toFixed(2) : sp.index}</td>
                   {!routeOnly && (

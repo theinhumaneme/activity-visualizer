@@ -3,11 +3,11 @@ import { Link } from "react-router";
 import { curveLabel, type PowerAnalysis } from "../../lib/analysis/power";
 import type { Analysis } from "../../lib/analysis/types";
 import { formatDuration } from "../../lib/format/format";
-import { useStore } from "../../state/store";
 import { useTheme } from "../../state/theme";
 import { type Band, Chart, type RefLine } from "../Chart";
 import { Card, Help, Stat, Tag } from "../ui";
 import { shares } from "./math";
+import { useStretch } from "./stretch";
 
 /** Seven power zones, recovery → neuromuscular (the five HR-zone hues plus gold and violet). */
 const POWER_RAMP = {
@@ -117,22 +117,18 @@ export function PowerSummary({ a }: { a: Analysis }) {
 /** Best average power for each duration; hover a row to find that effort on the map and charts. */
 export function PowerCurve({ a }: { a: Analysis }) {
   const p = a.power!;
-  const setHighlight = useStore((s) => s.setHighlight);
+  const stretch = useStretch();
   const top = p.curve[0]?.watts || 1;
   return (
     <Card title="Power curve" description="Your best average power for each duration, anywhere in the ride.">
       <ul className="space-y-1.5">
         {p.curve.map((c) => {
-          const on = () => setHighlight({ from: c.startIdx, to: c.endIdx, label: `Best ${curveLabel(c.seconds)} power` });
           return (
             <li
               key={c.seconds}
               tabIndex={0}
-              className="grid grid-cols-[3.75rem_minmax(0,1fr)_4.5rem] items-center gap-x-3 rounded-md px-1 py-1 text-sm outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2"
-              onMouseEnter={on}
-              onMouseLeave={() => setHighlight(null)}
-              onFocus={on}
-              onBlur={() => setHighlight(null)}
+              className="grid cursor-pointer grid-cols-[3.75rem_minmax(0,1fr)_4.5rem] items-center gap-x-3 rounded-md px-1 py-1 text-sm outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2"
+              {...stretch({ from: c.startIdx, to: c.endIdx, label: `Best ${curveLabel(c.seconds)} power` })}
             >
               <span className="font-medium text-ink-2 tabular">{curveLabel(c.seconds)}</span>
               <span className="h-2 overflow-hidden rounded-full bg-surface-2" aria-hidden>
