@@ -220,6 +220,8 @@ let demAbort: AbortController | null = null;
 let selection = 0;
 /** Bumped by each re-analysis of the current activity: only the newest result is applied. */
 let revision = 0;
+/** The restore from this tab's session in progress, shared by every caller. */
+let restoring: Promise<void> | null = null;
 
 export const useStore = create<State>((set, get) => {
   /**
@@ -407,16 +409,24 @@ export const useStore = create<State>((set, get) => {
       }
     },
 
-    async restoreSession() {
-      if (get().activity) return;
-      try {
-        const raw = sessionStorage.getItem(SESSION_KEY);
-        if (!raw) return;
-        const { fileName, text } = JSON.parse(raw) as { fileName: string; text: string };
-        await get().loadText(text, fileName);
-      } catch {
-        // Ignore a corrupt session entry.
-      }
+    restoreSession() {
+      // StrictMode runs RequireActivity's effect twice. Separate restores would race: the second
+      // supersedes the first's activity, so the first would finish with nothing loaded and the
+      // page would bounce to Upload. One shared restore finishes only once the activity is in.
+      restoring ??= (async () => {
+        if (get().activity) return;
+        try {
+          const raw = sessionStorage.getItem(SESSION_KEY);
+          if (!raw) return;
+          const { fileName, text } = JSON.parse(raw) as { fileName: string; text: string };
+          await get().loadText(text, fileName);
+        } catch {
+          // Ignore a corrupt session entry.
+        }
+      })().finally(() => {
+        restoring = null;
+      });
+      return restoring;
     },
 
     chooseActivity(index) {
