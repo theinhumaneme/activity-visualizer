@@ -1,7 +1,7 @@
 import { create } from "zustand";
-import { defaultSettings } from "../lib/analysis/analyze";
+import { defaultSettings } from "../lib/analysis/settings";
 import { analyzeOffThread } from "../lib/analysis/remote";
-import { headlineFor } from "../lib/analysis/report";
+import { headlineFor } from "../lib/analysis/headline";
 import { sampleTerrain } from "../lib/analysis/dem";
 import type { Analysis, Settings, Units } from "../lib/analysis/types";
 import { defaultUnits } from "../lib/format/format";

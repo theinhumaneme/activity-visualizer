@@ -41,13 +41,15 @@ export function routeShape(r: LibraryRecord): RouteShape | null {
 
 const dist = (p: [number, number], q: [number, number]) => haversine(p[1], p[0], q[1], q[0]);
 
-function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
+function segDistSquared(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
   const dx = bx - ax;
   const dy = by - ay;
   const len2 = dx * dx + dy * dy;
   let u = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
   u = u < 0 ? 0 : u > 1 ? 1 : u;
-  return Math.hypot(px - ax - u * dx, py - ay - u * dy);
+  const ex = px - ax - u * dx;
+  const ey = py - ay - u * dy;
+  return ex * ex + ey * ey;
 }
 
 /**
@@ -56,13 +58,14 @@ function segDist(px: number, py: number, ax: number, ay: number, bx: number, by:
  */
 function directed(a: [number, number][], b: [number, number][], limit = Infinity) {
   let worst = 0;
+  const limitSquared = limit * limit;
   for (const [px, py] of a) {
     let best = Infinity;
-    for (let j = 1; j < b.length && best > worst; j++) best = Math.min(best, segDist(px, py, b[j - 1][0], b[j - 1][1], b[j][0], b[j][1]));
-    if (best >= limit) return limit;
+    for (let j = 1; j < b.length && best > worst; j++) best = Math.min(best, segDistSquared(px, py, b[j - 1][0], b[j - 1][1], b[j][0], b[j][1]));
+    if (best >= limitSquared) return limit;
     if (best > worst) worst = best;
   }
-  return worst;
+  return Math.sqrt(worst);
 }
 
 /** A route's points projected to meters around its own first point (what `hausdorff` compares in). */
@@ -99,12 +102,12 @@ function sameDirection(a: RouteShape, b: RouteShape): boolean {
   return d[4] < Math.max(SAME_ROUTE.hausdorff, 0.08 * Math.max(a.length, b.length));
 }
 
-export function sameRoute(a: RouteShape, b: RouteShape, aProjected = projected(a.points)): boolean {
+export function sameRoute(a: RouteShape, b: RouteShape, aProjected?: ReturnType<typeof projected>): boolean {
   if (a.kind !== b.kind) return false;
   if (Math.abs(a.length - b.length) > SAME_ROUTE.lengthRatio * Math.max(a.length, b.length)) return false;
   if (dist(a.start, b.start) > SAME_ROUTE.endpoint || dist(a.end, b.end) > SAME_ROUTE.endpoint) return false;
   if (!sameDirection(a, b)) return false;
-  return hausdorffBelow(aProjected, b.points, SAME_ROUTE.hausdorff);
+  return hausdorffBelow(aProjected ?? projected(a.points), b.points, SAME_ROUTE.hausdorff);
 }
 
 export interface RouteGroup {
@@ -137,6 +140,22 @@ export function groupLabel(records: LibraryRecord[], loop: boolean, distance: nu
 }
 
 /**
+ * Index starts on the unit sphere: nearby points occupy the same or neighboring cells,
+ * including at the date line and poles. Chord distance is at most arc distance; using a
+ * slightly smaller mean Earth radius makes the cells conservative. Exact checks still
+ * decide whether routes match.
+ */
+function startCell([lon, lat]: [number, number]): [number, number, number] {
+  const width = SAME_ROUTE.endpoint / 6_371_000;
+  const phi = (lat * Math.PI) / 180;
+  const lambda = (lon * Math.PI) / 180;
+  const cos = Math.cos(phi);
+  return [Math.floor((cos * Math.cos(lambda)) / width), Math.floor((cos * Math.sin(lambda)) / width), Math.floor(Math.sin(phi) / width)];
+}
+
+const cellKey = (kind: SportKind, x: number, y: number, z: number) => `${kind}:${x}:${y}:${z}`;
+
+/**
  * Groups repeated routes. Greedy, in date order: each run joins the first group whose anchor
  * (its oldest run) it matches, so chains of slightly-drifting runs can't merge distinct routes.
  * Returns only routes run at least twice, most-run first.
@@ -145,12 +164,30 @@ export function groupRoutes(records: LibraryRecord[], unitLen = 1000, unit = "km
   const sorted = [...records].sort((a, b) => a.startTime - b.startTime);
   // Each anchor is projected once, not once per comparison.
   const groups: { anchor: RouteShape; projected: ReturnType<typeof projected>; members: LibraryRecord[] }[] = [];
+  const starts = new Map<string, number[]>();
   for (const r of sorted) {
     const shape = routeShape(r);
     if (!shape) continue;
-    const g = groups.find((x) => sameRoute(x.anchor, shape, x.projected));
+    const [x, y, z] = startCell(shape.start);
+    const candidates: number[] = [];
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dz = -1; dz <= 1; dz++) {
+          const bucket = starts.get(cellKey(shape.kind, x + dx, y + dy, z + dz));
+          if (bucket) for (const index of bucket) candidates.push(index);
+        }
+    // Keep the original greedy rule: the first matching anchor in date order wins.
+    candidates.sort((a, b) => a - b);
+    const match = candidates.find((i) => sameRoute(groups[i].anchor, shape, groups[i].projected));
+    const g = match === undefined ? undefined : groups[match];
     if (g) g.members.push(r);
-    else groups.push({ anchor: shape, projected: projected(shape.points), members: [r] });
+    else {
+      const key = cellKey(shape.kind, x, y, z);
+      let bucket = starts.get(key);
+      if (!bucket) starts.set(key, (bucket = []));
+      bucket.push(groups.length);
+      groups.push({ anchor: shape, projected: projected(shape.points), members: [r] });
+    }
   }
   return groups
     .filter((g) => g.members.length >= 2)

@@ -17,17 +17,18 @@ setupPwa();
 useStore.subscribe((s, prev) => s.mapDetail !== prev.mapDetail && markDetail());
 import { Layout } from "./components/Layout";
 import { RequireActivity } from "./components/RequireActivity";
-import { CheckPage } from "./routes/CheckPage";
 import { UploadPage } from "./routes/UploadPage";
 
 // Map-heavy steps load MapLibre on demand so the upload page stays small.
 const pages = {
+  "/check": () => import("./routes/CheckPage"),
   "/overview": () => import("./routes/OverviewPage"),
   "/analysis": () => import("./routes/AnalysisPage"),
   "/flyover": () => import("./routes/FlyoverPage"),
   "/export": () => import("./routes/ExportPage"),
   "/library": () => import("./routes/LibraryPage"),
 };
+const CheckPage = lazy(() => pages["/check"]().then((m) => ({ default: m.CheckPage })));
 const OverviewPage = lazy(() => pages["/overview"]().then((m) => ({ default: m.OverviewPage })));
 const AnalysisPage = lazy(() => pages["/analysis"]().then((m) => ({ default: m.AnalysisPage })));
 const FlyoverPage = lazy(() => pages["/flyover"]().then((m) => ({ default: m.FlyoverPage })));
@@ -40,21 +41,32 @@ const here = pages[location.pathname as keyof typeof pages];
 if (here) void here().catch(() => {});
 
 /** The step after each page: its code (and MapLibre) downloads while you read. Opening an activity lands on the flyover. */
-const NEXT: Record<string, keyof typeof pages> = { "/": "/flyover", "/library": "/flyover", "/check": "/overview", "/overview": "/analysis", "/analysis": "/flyover", "/flyover": "/export" };
+const NEXT: Record<string, keyof typeof pages> = {
+  "/": "/flyover",
+  "/library": "/flyover",
+  "/check": "/overview",
+  "/overview": "/analysis",
+  "/analysis": "/flyover",
+  "/flyover": "/export",
+};
 
 function PrefetchNext() {
   const { pathname } = useLocation();
+  const loading = useStore((s) => s.loading);
+  const hasActivity = useStore((s) => s.activity !== null);
   useEffect(() => {
     const next = NEXT[pathname];
     if (!next) return;
-    // Skip on metered or "save data" connections.
-    const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
-    if (conn?.saveData) return;
+    // Keep the landing page light until someone opens a file or the sample.
+    if (pathname === "/" && !loading && !hasActivity) return;
+    // Skip optional downloads on slow or data-saving connections.
+    const conn = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+    if (conn?.saveData || conn?.effectiveType === "slow-2g" || conn?.effectiveType === "2g") return;
     const idle = window.requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 1500));
     const cancel = window.cancelIdleCallback ?? window.clearTimeout;
     const id = idle(() => void pages[next]().catch(() => {}));
     return () => cancel(id);
-  }, [pathname]);
+  }, [pathname, loading, hasActivity]);
   return null;
 }
 

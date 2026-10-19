@@ -20,29 +20,13 @@ const MAX_DT = 10;
 /** Elevation changes smaller than this (m) are treated as noise when adding up gain and loss. */
 export const ELEV_HYSTERESIS = 2.5;
 
+export { defaultSettings } from "./settings";
+
 /**
  * Minetti et al. (2002) metabolic cost of running, J/(kg·m), at grade g (fraction, valid ±0.45).
  * GAP = speed × C(g) / C(0): what the same effort would have been worth on the flat.
  */
 export const minetti = (g: number) => 155.4 * g ** 5 - 30.4 * g ** 4 - 43.3 * g ** 3 + 46.3 * g ** 2 + 19.5 * g + 3.6;
-
-export function defaultSettings(activity: Activity, units: Units, privacyRadius = 0, ftp = 0): Settings {
-  let observed = 0;
-  for (const s of activity.samples) if (s.hr && s.hr > observed) observed = s.hr;
-  return {
-    name: activity.name,
-    units,
-    // The highest HR in one run is only a lower bound on max HR, so don't go below a typical value.
-    maxHr: Math.max(190, observed),
-    restingHr: 60,
-    zoneMethod: "max",
-    trimStart: 0,
-    trimEnd: 0,
-    maxHrEstimated: true,
-    privacyRadius,
-    ftp,
-  };
-}
 
 /** Applies the start/end trim and rebases time and distance to zero. */
 function trim(activity: Activity, settings: Settings, dem: Float64Array | null) {

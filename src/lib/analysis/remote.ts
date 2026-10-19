@@ -3,7 +3,6 @@
 // waiting (it resolves null), so dragging a slider can't queue up stale work. Without workers
 // (tests, very old browsers) it runs on the main thread as before.
 
-import { analyze } from "./analyze";
 import type { FromWorker, ToWorker } from "./analysisHost";
 import { decodeSamples } from "./columns";
 import type { Analysis, Settings } from "./types";
@@ -64,8 +63,10 @@ export class Analyzer {
     });
   }
 
-  private runHere(job: Job) {
+  private async runHere(job: Job) {
     try {
+      // Normal browsers use the worker; download its engine in the page only for fallback.
+      const { analyze } = await import("./analyze");
       job.resolve(analyze(job.activity, job.settings, job.dem));
     } catch (err) {
       job.reject(err instanceof Error ? err : new Error(String(err)));

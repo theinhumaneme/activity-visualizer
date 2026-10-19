@@ -86,7 +86,11 @@ describe("Analyzer (worker client)", () => {
     let w: ReturnType<typeof fakeWorker> | null = null;
     const an = new Analyzer(() => (w = fakeWorker(log)));
     const pending = an.analyze(activity, settings, null);
+    const queuedSettings = { ...settings, maxHr: 185 };
+    const queued = an.analyze(activity, queuedSettings, null);
     w!.fail();
     expect(plain((await pending)!)).toEqual(plain(analyze(activity, settings, null)));
+    expect(plain((await queued)!)).toEqual(plain(analyze(activity, queuedSettings, null)));
+    expect(plain((await an.analyze(activity, settings, null))!)).toEqual(plain(analyze(activity, settings, null)));
   });
 });

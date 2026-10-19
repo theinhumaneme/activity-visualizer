@@ -1,6 +1,5 @@
 import { haversine } from "../geo/geo";
 import {
-  formatDate,
   formatDateTime,
   formatDistance,
   formatDuration,
@@ -14,6 +13,7 @@ import {
 } from "../format/format";
 import { SPORTS } from "../sport";
 import { speedCeiling } from "./clean";
+import { headlineFor } from "./headline";
 import type { Analysis, Insight, QualityItem } from "./types";
 
 /**
@@ -362,14 +362,6 @@ export function buildInsights(a: Analysis): { insights: Insight[]; headline: str
 
   out.sort((x, y) => y.weight - x.weight);
   return { insights: out, headline: headlineFor(a) };
-}
-
-/** One-line summary; the only part of the analysis that depends on the activity's name. */
-export function headlineFor(a: Analysis): string {
-  const { summary: s, settings, activity } = a;
-  const u = settings.units;
-  const hrPart = s.avgHr ? `, average heart rate ${Math.round(s.avgHr)} bpm` : "";
-  return `${settings.name} on ${formatDate(activity.startTime, activity.utcOffsetMin)}: ${formatDistance(s.distance, u)} in ${formatDuration(s.elapsed)} (${formatDuration(s.moving)} moving) at ${formatMotion(s.avgSpeed, activity.kind, u)}${hrPart}.`;
 }
 
 /** Converts a per-km quantity to per-unit. */

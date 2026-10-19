@@ -192,6 +192,42 @@ describe("groupRoutes", () => {
     expect(groups[1].label).toBe("4.5 km route"); // "Morning Run" is too generic to name a route
     expect(groups[1].loop).toBe(false);
   });
+
+  it("keeps the earliest anchor when a route matches anchors in different cells", () => {
+    const make = (east: number, startTime: number) => record({ startTime, input: walk(loopPath(500, 80, 1, at(east, 0)), 3) });
+    const a = make(0, 1);
+    const b = make(200, 2);
+    const between = make(100, 3);
+    const bAgain = make(200, 4);
+    expect(sameRoute(routeShape(a)!, routeShape(between)!)).toBe(true);
+    expect(sameRoute(routeShape(b)!, routeShape(between)!)).toBe(true);
+    expect(groupRoutes([bAgain, between, b, a]).map((g) => g.members)).toEqual([
+      [a.id, between.id],
+      [b.id, bAgain.id],
+    ]);
+  });
+
+  it("matches exhaustive grouping near cell boundaries, the date line and the poles", () => {
+    const origins: [number, number][] = [[0, 0], [179.999, 0], [-179.999, 0], [45, 89.9], [-45, -89.9], HOME];
+    const records = origins.flatMap((origin, k) =>
+      Array.from({ length: 8 }, (_, i) =>
+        record({
+          startTime: i * 100 + k,
+          kind: i % 3 === 0 ? "ride" : "run",
+          input: walk(loopPath(500, 80, 1, [origin[0] + (i % 4) * 0.00015, origin[1] + (i % 2) * 0.0001]), 3),
+        }),
+      ),
+    );
+    const expected: { anchor: NonNullable<ReturnType<typeof routeShape>>; ids: string[] }[] = [];
+    for (const r of [...records].sort((a, b) => a.startTime - b.startTime)) {
+      const shape = routeShape(r)!;
+      const group = expected.find((g) => sameRoute(g.anchor, shape));
+      if (group) group.ids.push(r.id);
+      else expected.push({ anchor: shape, ids: [r.id] });
+    }
+    const canonical = (groups: string[][]) => groups.map((ids) => ids.join(",")).sort();
+    expect(canonical(groupRoutes(records).map((g) => g.members))).toEqual(canonical(expected.filter((g) => g.ids.length > 1).map((g) => g.ids)));
+  });
 });
 
 // --- Records -------------------------------------------------------------------------------
@@ -207,7 +243,11 @@ describe("personalRecords", () => {
     expect(prs.find((p) => p.kind === "run" && p.distance === 5000)!.activityId).toBe(a.id);
     expect(prs.find((p) => p.kind === "walk" && p.distance === 1000)!.seconds).toBe(280);
     expect(prs.some((p) => p.kind === "run" && p.distance === 10000)).toBe(false);
-    expect(recordsByActivity(prs).get(b.id)!.map((p) => p.distance)).toEqual([1000]);
+    expect(
+      recordsByActivity(prs)
+        .get(b.id)!
+        .map((p) => p.distance),
+    ).toEqual([1000]);
   });
 });
 
@@ -249,8 +289,22 @@ describe("weekly and monthly totals", () => {
 
 describe("recap", () => {
   it("adds up totals and reads the time of day in each activity's local time", () => {
-    const morning = record({ startTime: Date.UTC(2026, 3, 1, 11), utcOffsetMin: -240, distance: 5200, moving: 1600, elevGain: 40, elevSource: "file-unverified", bestEfforts: [effort(5000, 1500)] });
-    const tokyo = record({ startTime: Date.UTC(2026, 3, 2, 22), utcOffsetMin: 540, distance: 10500, moving: 3300, bestEfforts: [effort(5000, 1550), effort(10000, 3200)] });
+    const morning = record({
+      startTime: Date.UTC(2026, 3, 1, 11),
+      utcOffsetMin: -240,
+      distance: 5200,
+      moving: 1600,
+      elevGain: 40,
+      elevSource: "file-unverified",
+      bestEfforts: [effort(5000, 1500)],
+    });
+    const tokyo = record({
+      startTime: Date.UTC(2026, 3, 2, 22),
+      utcOffsetMin: 540,
+      distance: 10500,
+      moving: 3300,
+      bestEfforts: [effort(5000, 1550), effort(10000, 3200)],
+    });
     expect(localHour(morning)).toBe(7);
     expect(localHour(tokyo)).toBe(7);
     const r = recap([morning, tokyo], []);
