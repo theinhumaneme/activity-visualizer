@@ -62,6 +62,16 @@ export function formatElevation(m: number, u: Units): string {
   return u === "metric" ? `${Math.round(m)} m` : `${Math.round(m * 3.28084)} ft`;
 }
 
+/** VAM, vertical meters (or feet) climbed per hour: "940 m/h". */
+export function formatVam(metersPerHour: number, u: Units, withUnit = true): string {
+  if (!Number.isFinite(metersPerHour)) return "—";
+  const v = Math.round(u === "metric" ? metersPerHour : metersPerHour * 3.28084).toLocaleString("en-US");
+  return withUnit ? `${v} ${u === "metric" ? "m/h" : "ft/h"}` : v;
+}
+
+/** A grade as a signed percentage: "+12%", "−8%". */
+export const formatGrade = (g: number) => `${g >= 0 ? "+" : "−"}${Math.abs(Math.round(g * 100))}%`;
+
 /**
  * Activity times are shown in the activity's own local time when the file records its UTC
  * offset (so an activity in Boston reads 11:06 wherever you open it); otherwise in your browser's zone.

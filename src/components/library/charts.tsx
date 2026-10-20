@@ -68,21 +68,26 @@ export interface BarDatum {
   x: number;
   value: number;
   tip: ReactNode;
+  /** Stacked segments, bottom first, adding up to `value` (colored by the chart's `colors`). */
+  parts?: number[];
 }
 
-/** Bars over time (weeks or months), one series, hover for the exact numbers. */
+/** Bars over time (weeks or months), one series or stacked parts, hover for the exact numbers. */
 export function TimeBars({
   data,
   formatTick,
   label,
   height = 170,
   color = "var(--accent)",
+  colors,
 }: {
   data: BarDatum[];
   formatTick: (v: number) => string;
   label: string;
   height?: number;
   color?: string;
+  /** One color per stacked part. */
+  colors?: string[];
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
@@ -122,9 +127,25 @@ export function TimeBars({
               </text>
             </g>
           ))}
-          {data.map((d, i) => (
-            <path key={i} d={barPath(PAD.left + i * slot + gap / 2, y(d.value), bw, PAD.top + ih - y(d.value))} fill={color} opacity={hover === null || hover === i ? 1 : 0.55} />
-          ))}
+          {data.map((d, i) => {
+            const x = PAD.left + i * slot + gap / 2;
+            const opacity = hover === null || hover === i ? 1 : 0.55;
+            if (!d.parts || !colors) return <path key={i} d={barPath(x, y(d.value), bw, PAD.top + ih - y(d.value))} fill={color} opacity={opacity} />;
+            // Lower parts are plain rectangles; the top one gets the rounded cap.
+            const top = d.parts.reduce((k, v, j) => (v > 0 ? j : k), -1);
+            let base = 0;
+            return (
+              <g key={i} opacity={opacity}>
+                {d.parts.map((v, j) => {
+                  if (!(v > 0)) return null;
+                  const y0 = y(base + v);
+                  const h = y(base) - y0;
+                  base += v;
+                  return j === top ? <path key={j} d={barPath(x, y0, bw, h)} fill={colors[j]} /> : <rect key={j} x={x} y={y0} width={bw} height={h} fill={colors[j]} />;
+                })}
+              </g>
+            );
+          })}
           {xt.map((t) => (
             <text key={t.x} x={xOf(t.x)} y={height - 6} textAnchor="middle" fontSize="11" fill="var(--muted)">
               {t.label}
@@ -242,6 +263,91 @@ export function Trend({
             />
           ))}
           {linePath && <path d={linePath} fill="none" stroke={lineColor} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />}
+        </svg>
+      )}
+      {hover !== null && points[hover] && (
+        <Tooltip x={xOf(points[hover].x)} width={width}>
+          {points[hover].tip}
+        </Tooltip>
+      )}
+    </div>
+  );
+}
+
+export interface LoadPoint {
+  /** Local-time ms of the day. */
+  x: number;
+  fitness: number;
+  fatigue: number;
+  form: number;
+  tip: ReactNode;
+}
+
+/**
+ * Fitness and fatigue as lines and form as bars around zero, one point per day, on one axis
+ * (they share a unit). Hover picks the day under the pointer.
+ */
+export function LoadChart({ points, label, height = 220 }: { points: LoadPoint[]; label: string; height?: number }) {
+  const [ref, width] = useWidth<HTMLDivElement>();
+  const [hover, setHover] = useState<number | null>(null);
+  const vals = points.flatMap((p) => [p.fitness, p.fatigue, p.form]);
+  const ticks = niceTicks(Math.min(0, ...vals), Math.max(1, ...vals));
+  const lo = ticks[0];
+  const hi = ticks[ticks.length - 1];
+  const iw = Math.max(0, width - PAD.left - PAD.right - 8);
+  const ih = height - PAD.top - PAD.bottom;
+  const x0 = points[0]?.x ?? 0;
+  const x1 = points[points.length - 1]?.x ?? 1;
+  const xOf = (t: number) => PAD.left + 4 + ((t - x0) / (x1 - x0 || 1)) * iw;
+  const yOf = (v: number) => PAD.top + ih - ((v - lo) / (hi - lo || 1)) * ih;
+  const xt = dateTicks(x0, x1, Math.max(2, Math.floor(iw / 70)));
+  const path = (key: "fitness" | "fatigue") => points.map((p, i) => `${i ? "L" : "M"}${xOf(p.x).toFixed(1)},${yOf(p[key]).toFixed(1)}`).join("");
+  const bw = Math.max(1, iw / Math.max(1, points.length) - 0.5);
+  const zero = yOf(0);
+
+  return (
+    <div ref={ref} className="relative w-full select-none" style={{ height }}>
+      {width > 0 && points.length > 0 && (
+        <svg
+          width={width}
+          height={height}
+          role="img"
+          aria-label={label}
+          onPointerMove={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            const f = (e.clientX - r.left - PAD.left - 4) / (iw || 1);
+            const i = Math.round(f * (points.length - 1));
+            setHover(i >= 0 && i < points.length ? i : null);
+          }}
+          onPointerLeave={() => setHover(null)}
+        >
+          {ticks.map((t) => (
+            <g key={t}>
+              <line x1={PAD.left} x2={width - PAD.right} y1={yOf(t)} y2={yOf(t)} stroke={t === 0 ? "var(--line)" : "var(--grid)"} />
+              <text x={PAD.left - 6} y={yOf(t)} dy="0.32em" textAnchor="end" fontSize="11" fill="var(--muted)" className="tabular">
+                {Math.round(t)}
+              </text>
+            </g>
+          ))}
+          {points.map((p, i) => (
+            <rect
+              key={i}
+              x={xOf(p.x) - bw / 2}
+              y={Math.min(zero, yOf(p.form))}
+              width={bw}
+              height={Math.abs(yOf(p.form) - zero)}
+              fill={p.form >= 0 ? "var(--good)" : "var(--warning)"}
+              opacity={hover === i ? 0.9 : 0.35}
+            />
+          ))}
+          <path d={path("fatigue")} fill="none" stroke="var(--series-hr)" strokeWidth={1.5} strokeLinejoin="round" />
+          <path d={path("fitness")} fill="none" stroke="var(--series-pace)" strokeWidth={2.5} strokeLinejoin="round" />
+          {hover !== null && points[hover] && <line x1={xOf(points[hover].x)} x2={xOf(points[hover].x)} y1={PAD.top} y2={PAD.top + ih} stroke="var(--ink-2)" strokeDasharray="2 3" />}
+          {xt.map((t) => (
+            <text key={t.x} x={xOf(t.x)} y={height - 6} textAnchor="middle" fontSize="11" fill="var(--muted)">
+              {t.label}
+            </text>
+          ))}
         </svg>
       )}
       {hover !== null && points[hover] && (

@@ -52,4 +52,28 @@ describe("computePower", () => {
     const { samples, t } = ride((s) => (s < 100 ? 200 : undefined), 1000);
     expect(computePower(samples, t, 0)).toBeNull();
   });
+
+  it("drains W′ above FTP and refills it below", () => {
+    // 10 min at 150 W, 2 min at 300 W, then 10 min easy, with FTP 250 W and W′ 20 kJ.
+    const { samples, t } = ride((s) => (s >= 600 && s < 720 ? 300 : 150), 1320);
+    const p = computePower(samples, t, 250)!;
+    const wb = p.wbal!;
+    expect(wb.wPrime).toBe(20000);
+    expect(wb.wPrimeEstimated).toBe(true);
+    // 120 s at 50 W over FTP: 6 kJ gone.
+    expect(wb.min).toBeCloseTo(14000, -2);
+    expect(t[wb.minIdx]).toBeGreaterThanOrEqual(715);
+    expect(t[wb.minIdx]).toBeLessThanOrEqual(721);
+    expect(wb.series[0]).toBe(20000);
+    // Mostly refilled after 10 easy minutes.
+    expect(wb.series[wb.series.length - 1]).toBeGreaterThan(19500);
+    // A W′ you enter is used as is.
+    expect(computePower(samples, t, 250, 15000)!.wbal!.min).toBeCloseTo(9000, -2);
+  });
+
+  it("has no W′ balance without an FTP", () => {
+    const { samples, t } = ride(() => 200, 600);
+    expect(computePower(samples, t, 0)!.wbal).toBeUndefined();
+  });
 });
+

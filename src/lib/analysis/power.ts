@@ -1,6 +1,6 @@
 // Power analysis for activities recorded with a power meter: normalized power, intensity and
 // training stress against FTP (entered, or estimated from the best 20 minutes), time in the seven
-// Coggan zones, and the best average power for each duration (the power curve).
+// Coggan zones, the best average power for each duration (the power curve), and W′ balance.
 //
 // Everything works on a 1 Hz series over recorded time. Coasting counts as 0 W, as on a head unit;
 // gaps longer than PAUSE (auto-pause, the timer stopped) are left out, as are dropouts beyond it.
@@ -8,6 +8,8 @@
 import type { Sample } from "../parse/types";
 
 const PAUSE = 10;
+/** A typical W′ for a trained rider, joules, when none is entered. */
+export const DEFAULT_W_PRIME = 20000;
 /** Durations for the power curve, seconds. */
 const CURVE = [1, 5, 15, 30, 60, 120, 300, 600, 1200, 1800, 3600, 5400, 7200, 10800, 14400, 18000];
 
@@ -38,6 +40,20 @@ export interface CurvePoint {
   endIdx: number;
 }
 
+/**
+ * W′ balance: how much of the work you can do above threshold is left, using FTP as critical power.
+ * Above FTP it drains watt for watt; below, it refills faster the emptier it is (Skiba's
+ * differential model).
+ */
+export interface WBalance {
+  /** Joules left at each sample. */
+  series: Float64Array;
+  wPrime: number;
+  wPrimeEstimated: boolean;
+  min: number;
+  minIdx: number;
+}
+
 export interface PowerAnalysis {
   /** Power per sample, a centered 10 s average (NaN where nothing was recorded). */
   series: Float64Array;
@@ -59,13 +75,16 @@ export interface PowerAnalysis {
   tss?: number;
   zones: PowerZone[];
   curve: CurvePoint[];
+  /** Absent until FTP is known (entered, or estimated from a 20-minute effort). */
+  wbal?: WBalance;
 }
 
 /**
  * @param ftpSetting the rider's FTP in watts, or 0 to estimate it (95% of the best 20 minutes;
  *   no FTP, zones or stress score if the activity is shorter than that).
+ * @param wPrimeSetting W′ in joules, or 0 for the typical 20 kJ.
  */
-export function computePower(samples: Sample[], t: Float64Array, ftpSetting: number): PowerAnalysis | null {
+export function computePower(samples: Sample[], t: Float64Array, ftpSetting: number, wPrimeSetting = 0): PowerAnalysis | null {
   const n = samples.length;
   let withPower = 0;
   for (const s of samples) if (s.power !== undefined) withPower++;
@@ -161,6 +180,23 @@ export function computePower(samples: Sample[], t: Float64Array, ftpSetting: num
     series[i] = cnt > 0 ? (wp[hi] - wp[lo]) / cnt : NaN;
   }
 
+  // W′ balance second by second; paused seconds count as resting at 0 W.
+  let wbal: WBalance | undefined;
+  if (ftp > 0) {
+    const wPrime = wPrimeSetting > 0 ? wPrimeSetting : DEFAULT_W_PRIME;
+    const bySecond = new Float64Array(T + 1);
+    let bal = wPrime;
+    for (let k = 0; k <= T; k++) {
+      const p = Number.isNaN(w[k]) ? 0 : w[k];
+      bal = p > ftp ? bal - (p - ftp) : bal + ((ftp - p) * (wPrime - bal)) / wPrime;
+      bySecond[k] = bal;
+    }
+    const s = Float64Array.from(t, (ti) => bySecond[Math.min(T, Math.round(ti))]);
+    let minIdx = 0;
+    for (let i = 1; i < n; i++) if (s[i] < s[minIdx]) minIdx = i;
+    wbal = { series: s, wPrime, wPrimeEstimated: wPrimeSetting <= 0, min: s[minIdx], minIdx };
+  }
+
   return {
     series,
     avg,
@@ -175,6 +211,7 @@ export function computePower(samples: Sample[], t: Float64Array, ftpSetting: num
     tss: intensity !== undefined ? ((m * np * intensity) / (ftp * 3600)) * 100 : undefined,
     zones,
     curve,
+    wbal,
   };
 }
 

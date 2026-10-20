@@ -2,7 +2,7 @@ import type { Activity } from "../parse/types";
 import type { Settings, Units } from "./types";
 
 /** Initial settings without loading the analysis engine into the page. */
-export function defaultSettings(activity: Activity, units: Units, privacyRadius = 0, ftp = 0): Settings {
+export function defaultSettings(activity: Activity, units: Units, privacyRadius = 0, ftp = 0, weight = 0, wPrime = 0): Settings {
   let observed = 0;
   for (const s of activity.samples) if (s.hr && s.hr > observed) observed = s.hr;
   return {
@@ -17,5 +17,7 @@ export function defaultSettings(activity: Activity, units: Units, privacyRadius 
     maxHrEstimated: true,
     privacyRadius,
     ftp,
+    weight,
+    wPrime,
   };
 }

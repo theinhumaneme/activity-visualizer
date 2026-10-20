@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
+import { minetti } from "../../lib/analysis/gap";
 import { atIndex } from "../../lib/analysis/series";
 import type { Analysis } from "../../lib/analysis/types";
-import { formatDistance, formatDuration, formatElevation, formatMotion, formatPace, motionLabel, unitLabel, usesPace } from "../../lib/format/format";
+import { formatDistance, formatDuration, formatElevation, formatMotion, formatPace, formatVam, motionLabel, unitLabel, usesPace } from "../../lib/format/format";
 import { useStore } from "../../state/store";
-import { Chart } from "../Chart";
+import { Chart, type RefLine } from "../Chart";
 import { Card, Explain, Help, Stat } from "../ui";
+import { driftSeries } from "./math";
 import { formatSplitMotion } from "./units";
 import { useStretch } from "./stretch";
 
@@ -40,6 +42,42 @@ export function CadenceChart({ a }: { a: Analysis }) {
           {ride ? "Pedal revolutions per minute while moving." : "Both feet counted, while moving."}
           {!ride && a.activity.cadenceDoubled && " Doubled from the file's per-leg value (your device records one foot)."}
           {s.strideLength !== undefined && ` Average stride about ${s.strideLength.toFixed(2)} m.`}
+        </Explain>
+      }
+    />
+  );
+}
+
+/** Distance per heartbeat through the activity: a line that sags as heart rate drifts up. */
+export function DriftChart({ a }: { a: Analysis }) {
+  const grade = a.gap ? a.grade : null;
+  const d = useMemo(
+    () => driftSeries(a.t, a.dist, a.hr, a.moving, grade ? (i) => minetti(grade[i]) / minetti(0) : null),
+    [a, grade],
+  );
+  const refLines = useMemo<RefLine[]>(
+    () => (d ? [{ value: d.firstHalf, label: `1st half ${d.firstHalf.toFixed(2)}` }, { value: d.secondHalf, label: `2nd half ${d.secondHalf.toFixed(2)}` }] : []),
+    [d],
+  );
+  const fmt = useMemo(() => ({ value: (v: number) => `${v.toFixed(2)} m/beat`, tick: (v: number) => v.toFixed(2) }), []);
+  if (!d) return null;
+  return (
+    <Chart
+      title="Cardiac drift"
+      unit="m per heartbeat"
+      values={d.values}
+      color="--series-hr"
+      height={150}
+      clip={CADENCE_CLIP}
+      refLines={refLines}
+      formatValue={fmt.value}
+      formatTick={fmt.tick}
+      aside={<span className="tabular">{`drift ${d.drift >= 0 ? "+" : "−"}${Math.abs(d.drift).toFixed(1)}%`}</span>}
+      footer={
+        <Explain>
+          How far you went per heartbeat, over 5 minutes of moving time around each point{grade ? ", with hills evened out like GAP" : ""}. A line that
+          sags means heart rate crept up for the same {usesPace(a.activity.kind) ? "pace" : "speed"}: heat, dehydration or tiring. Under 5% between
+          the halves is steady.
         </Explain>
       }
     />
@@ -189,6 +227,14 @@ export function EffortCard({ a }: { a: Analysis }) {
             sub={s.moving < 1200 ? "less reliable under 20 min" : Math.abs(s.decoupling) < 5 ? "steady" : "HR drifted"}
           />
         )}
+        {s.hrRecovery && (
+          <Stat
+            label="HR recovery"
+            value={`−${Math.round(s.hrRecovery.drop)} bpm`}
+            sub={`${Math.round(s.hrRecovery.from)} → ${Math.round(s.hrRecovery.to)} in a minute, ${s.hrRecovery.source === "finish" ? "after the finish" : "at your longest stop"}`}
+          />
+        )}
+        {s.vam !== undefined && <Stat label="Climbing VAM" value={formatVam(s.vam, u)} sub={`over ${a.climbs.filter((c) => c.vam !== undefined).length} climb${a.climbs.filter((c) => c.vam !== undefined).length === 1 ? "" : "s"}`} />}
         {s.paceCv !== undefined && <Stat label={`${motionLabel(kind)} variability`} value={`${Math.round(s.paceCv * 100)}%`} sub="coefficient of variation" />}
         {s.avgCadence !== undefined && (
           <Stat
@@ -212,6 +258,13 @@ export function EffortCard({ a }: { a: Analysis }) {
         <p>Training load adds up minutes in each zone × the zone number.</p>
         <p>Efficiency is speed divided by heart rate; it rises as you get fitter at the same effort.</p>
         <p>Decoupling compares that efficiency in the first and second half: under 5% means heart rate kept pace with speed.</p>
+        {s.hrRecovery && (
+          <p>
+            HR recovery is how far heart rate fell in the minute after you stopped. A drop of 25 bpm or more is quick; under 12 is slow. It only means
+            something if you stopped right after a real effort.
+          </p>
+        )}
+        {s.vam !== undefined && <p>Climbing VAM is the height you gained on the detected climbs per hour spent on them. Strong amateur cyclists hold around 1,000 m/h (3,300 ft/h) on long climbs.</p>}
       </Help>
     </Card>
   );

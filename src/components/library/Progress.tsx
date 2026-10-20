@@ -1,18 +1,21 @@
 import { type ReactNode, useMemo } from "react";
 import type { Units } from "../../lib/analysis/types";
-import { formatMotion, unitLabel, unitLength } from "../../lib/format/format";
-import { DAY_MS, buckets, localDay, rollingMean } from "../../lib/library/aggregate";
+import { formatDuration, formatMotion, unitLabel, unitLength } from "../../lib/format/format";
+import { DAY_MS, buckets, localDay, rollingMean, weekStart } from "../../lib/library/aggregate";
+import { FATIGUE_DAYS, FITNESS_DAYS, activityLoad, formWord, today, trainingLoad } from "../../lib/library/load";
 import type { LibraryRecord } from "../../lib/library/types";
-import { TimeBars, Trend } from "./charts";
-import { type SportFilter, distanceText, isFootSport, shortDate, sportPlural, sportSingular } from "./format";
+import { RAMPS } from "../../lib/map/route";
+import { useTheme } from "../../state/theme";
+import { LoadChart, TimeBars, Trend } from "./charts";
+import { type SportFilter, distanceText, hoursText, isFootSport, shortDate, sportPlural, sportSingular } from "./format";
 
 const ROLLING = 5;
 /** Heart rate the efficiency is translated at, for the "≈ pace" readout. */
 const REF_HR = 150;
 
-function Panel({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {
+function Panel({ title, note, children, wide }: { title: string; note?: ReactNode; children: ReactNode; wide?: boolean }) {
   return (
-    <section className="min-w-0 rounded-2xl border border-grid bg-surface p-4 sm:p-5">
+    <section className={`min-w-0 rounded-2xl border border-grid bg-surface p-4 sm:p-5 ${wide ? "lg:col-span-2" : ""}`}>
       <h3 className="label-caps text-muted">{title}</h3>
       <div className="mt-3">{children}</div>
       {note && <p className="mt-2 text-xs leading-relaxed text-muted">{note}</p>}
@@ -24,7 +27,28 @@ const weekLabel = (start: number) =>
   `Week of ${new Date(start * DAY_MS).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}`;
 const monthLabel = (start: number) => new Date(start * DAY_MS).toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
 
-export function Progress({ records, kind, units }: { records: LibraryRecord[]; kind: SportFilter; units: Units }) {
+const dayLabel = (day: number) => new Date(day * DAY_MS).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+const ZONE_NAMES = ["Recovery", "Endurance", "Tempo", "Threshold", "Maximum"];
+
+/**
+ * @param history every activity of the chosen sport, so fitness at the start of the period
+ *   includes the training before it.
+ * @param throughToday the period runs to today, so fitness and form are shown up to now.
+ */
+export function Progress({
+  records,
+  history,
+  throughToday,
+  kind,
+  units,
+}: {
+  records: LibraryRecord[];
+  history: LibraryRecord[];
+  throughToday: boolean;
+  kind: SportFilter;
+  units: Units;
+}) {
+  const theme = useTheme((s) => s.theme);
   const ul = unitLength(units);
   const unit = unitLabel(units);
   const sorted = useMemo(() => [...records].sort((a, b) => a.startTime - b.startTime), [records]);
@@ -53,8 +77,94 @@ export function Progress({ records, kind, units }: { records: LibraryRecord[]; k
   const single = kind !== "all";
   const cadUnit = kind === "ride" ? "rpm" : isFootSport(kind) ? "steps/min" : "per min";
 
+  // Fitness over the whole history, shown for the period's days.
+  const firstDay = sorted.length ? localDay(sorted[0]) : 0;
+  const lastDay = sorted.length ? localDay(sorted[sorted.length - 1]) : 0;
+  const loadDays = useMemo(() => {
+    const all = trainingLoad(history, throughToday ? today() : lastDay);
+    return all.filter((d) => d.day >= firstDay && d.day <= (throughToday ? today() : lastDay));
+  }, [history, throughToday, firstDay, lastDay]);
+  const withLoad = sorted.filter((r) => activityLoad(r) !== undefined).length;
+  const now = loadDays[loadDays.length - 1];
+
+  // Heart-rate zone time per week.
+  const zoneWeeks = useMemo(() => {
+    const zr = sorted.filter((r) => r.zoneSeconds?.length === 5);
+    if (!zr.length) return null;
+    const map = new Map<number, number[]>();
+    for (const r of zr) {
+      const w = weekStart(localDay(r));
+      const cur = map.get(w) ?? [0, 0, 0, 0, 0];
+      r.zoneSeconds!.forEach((v, k) => (cur[k] += v));
+      map.set(w, cur);
+    }
+    const keys = [...map.keys()];
+    const out: { start: number; parts: number[] }[] = [];
+    for (let w = Math.min(...keys); w <= Math.max(...keys); w += 7) out.push({ start: w, parts: map.get(w) ?? [0, 0, 0, 0, 0] });
+    const totals = out.reduce((t, w) => t.map((v, k) => v + w.parts[k]), [0, 0, 0, 0, 0]);
+    return { weeks: out, totals, count: zr.length };
+  }, [sorted]);
+  const zoneTotal = zoneWeeks ? zoneWeeks.totals.reduce((a, b) => a + b, 0) : 0;
+  const easyShare = zoneWeeks && zoneTotal > 0 ? (zoneWeeks.totals[0] + zoneWeeks.totals[1]) / zoneTotal : 0;
+
   return (
     <div className="grid gap-4 lg:grid-cols-2">
+      <Panel
+        wide
+        title="Fitness, fatigue and form"
+        note={
+          <>
+            Each {one}'s training load is its heart-rate TRIMP (power TSS for rides without heart rate); {withLoad} of {sorted.length} have one.
+            Fitness is your load averaged over {FITNESS_DAYS} days, fatigue over {FATIGUE_DAYS}; form is fitness minus fatigue. Zones use an estimated
+            max heart rate of at least 190, so compare yourself over time rather than with others. Fitness takes about six weeks of history to settle.
+          </>
+        }
+      >
+        {loadDays.length >= 2 && now ? (
+          <>
+            <div className="mb-3 flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm">
+              <span>
+                <span className="mr-1.5 inline-block h-0.5 w-4 align-middle bg-series-pace" aria-hidden />
+                Fitness <span className="font-semibold tabular">{Math.round(now.fitness)}</span>
+              </span>
+              <span>
+                <span className="mr-1.5 inline-block h-0.5 w-4 align-middle bg-series-hr" aria-hidden />
+                Fatigue <span className="font-semibold tabular">{Math.round(now.fatigue)}</span>
+              </span>
+              <span>
+                Form <span className="font-semibold tabular">{now.form >= 0 ? "+" : "−"}{Math.abs(Math.round(now.form))}</span>{" "}
+                <span className="text-ink-2">{formWord(now.form, now.fitness)}</span>
+              </span>
+              <span className="text-muted">{throughToday ? "today" : `on ${dayLabel(now.day)}`}</span>
+            </div>
+            <LoadChart
+              label="Fitness, fatigue and form per day"
+              points={loadDays.map((d) => ({
+                x: d.day * DAY_MS,
+                fitness: d.fitness,
+                fatigue: d.fatigue,
+                form: d.form,
+                tip: (
+                  <>
+                    <div className="text-muted">{dayLabel(d.day)}</div>
+                    <div>
+                      Fitness <span className="font-semibold">{Math.round(d.fitness)}</span> · fatigue <span className="font-semibold">{Math.round(d.fatigue)}</span>
+                    </div>
+                    <div>
+                      Form {d.form >= 0 ? "+" : "−"}
+                      {Math.abs(Math.round(d.form))} <span className="text-ink-2">{formWord(d.form, d.fitness)}</span>
+                    </div>
+                    <div className="text-ink-2">{d.load > 0 ? `Load that day ${Math.round(d.load)}` : "Rest day"}</div>
+                  </>
+                ),
+              }))}
+            />
+          </>
+        ) : (
+          <Empty>Needs {plural} with heart rate (or power) on at least two days.</Empty>
+        )}
+      </Panel>
+
       <Panel title={`${monthly ? "Monthly" : "Weekly"} distance (${unit})`} note={monthly ? "Monthly totals: your library spans more than 18 months." : "Monday to Sunday, in each activity's local time."}>
         <TimeBars
           label={`${monthly ? "Monthly" : "Weekly"} distance`}
@@ -99,6 +209,59 @@ export function Progress({ records, kind, units }: { records: LibraryRecord[]; k
           />
         ) : (
           <Empty>Needs two weeks with activity.</Empty>
+        )}
+      </Panel>
+
+      <Panel
+        title="Time in heart-rate zones per week (h)"
+        note={
+          zoneWeeks ? (
+            <>
+              {zoneWeeks.count} of {sorted.length} {plural} have heart rate. Zones 1–2 are easy; most endurance coaching aims for about 80% of the time
+              there. Zones use an estimated max heart rate of at least 190.
+            </>
+          ) : undefined
+        }
+      >
+        {zoneWeeks ? (
+          <>
+            <p className="mb-2 text-sm">
+              <span className="font-semibold tabular">{Math.round(easyShare * 100)}%</span> easy (zones 1–2),{" "}
+              <span className="font-semibold tabular">{Math.round((1 - easyShare) * 100)}%</span> harder, over {hoursText(zoneTotal)}.
+            </p>
+            <TimeBars
+              label="Hours in each heart-rate zone per week"
+              colors={RAMPS.zone[theme]}
+              data={zoneWeeks.weeks.map((w) => {
+                const total = w.parts.reduce((a, b) => a + b, 0);
+                return {
+                  x: w.start * DAY_MS,
+                  value: total / 3600,
+                  parts: w.parts.map((v) => v / 3600),
+                  tip: (
+                    <>
+                      <div className="text-muted">{weekLabel(w.start)}</div>
+                      {total > 0 ? (
+                        [...w.parts].reverse().map((v, k) => (
+                          <div key={k} className="flex justify-between gap-2">
+                            <span>
+                              Z{5 - k} {ZONE_NAMES[4 - k]}
+                            </span>
+                            <span className="font-semibold">{formatDuration(v)}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <div>No heart rate this week</div>
+                      )}
+                    </>
+                  ),
+                };
+              })}
+              formatTick={(v) => (v < 10 ? v.toFixed(1).replace(/\.0$/, "") : String(Math.round(v)))}
+            />
+          </>
+        ) : (
+          <Empty>None of these {plural} record heart rate.</Empty>
         )}
       </Panel>
 

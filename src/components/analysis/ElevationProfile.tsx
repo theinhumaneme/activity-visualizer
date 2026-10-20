@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { climbLabel } from "../../lib/analysis/climbs";
+import type { GradeStretch } from "../../lib/analysis/metrics";
 import type { Analysis } from "../../lib/analysis/types";
-import { formatElevation } from "../../lib/format/format";
+import { formatElevation, formatGrade, formatMotion, formatVam } from "../../lib/format/format";
 import { GRADE_SPAN, RAMPS, buildChunks, colorDomain, sampleColors } from "../../lib/map/route";
 import { useStore } from "../../state/store";
 import { cssVar, useTheme } from "../../state/theme";
@@ -122,6 +123,11 @@ export function ElevationProfile({ a }: { a: Analysis }) {
         })();
 
   const fmt = useMemo(() => ({ value: (v: number) => formatElevation(v, u), tick: (v: number) => elevNum(v, metric) }), [u, metric]);
+  const steep = [
+    { label: "Steepest 100 m", s: a.steepest.up100 },
+    { label: `Steepest ${metric ? "1 km" : "0.6 mi"}`, s: a.steepest.up1k },
+    { label: `Steepest descent, ${metric ? "1 km" : "0.6 mi"}`, s: a.steepest.down1k },
+  ].filter((x): x is { label: string; s: GradeStretch } => !!x.s);
 
   return (
     <Chart
@@ -175,6 +181,23 @@ export function ElevationProfile({ a }: { a: Analysis }) {
                     {...stretch({ from: c.startIdx, to: c.endIdx, label: climbLabel(c) })}
                   >
                     {k + 1}. {climbLabel(c)} · +{formatElevation(c.gain, u)} over {formatShortDistance(c.length, a)} · {Math.round(c.grade * 100)}%
+                    {c.vam !== undefined && ` · ${formatVam(c.vam, u)}`}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {steep.length > 0 && (
+            <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Steepest stretches">
+              {steep.map(({ label, s: st }) => (
+                <li key={label}>
+                  <button
+                    type="button"
+                    className="min-h-8 rounded-full border border-dashed border-line px-3 text-label text-ink-2 tabular transition-colors hover:bg-surface-2 hover:text-ink focus-visible:bg-surface-2"
+                    {...stretch({ from: st.startIdx, to: st.endIdx, label })}
+                  >
+                    {label} · {formatGrade(st.grade)}
+                    {st.speed !== undefined && ` · ${formatMotion(st.speed, a.activity.kind, u)}`}
                   </button>
                 </li>
               ))}
@@ -182,7 +205,7 @@ export function ElevationProfile({ a }: { a: Analysis }) {
           )}
           <Explain>
             {a.climbs.length
-              ? `${a.climbs.length} climb${a.climbs.length === 1 ? "" : "s"} (at least 8 m of gain at 2.5% or steeper). Hover one to see it on the map, or click to watch it in 3D.`
+              ? `${a.climbs.length} climb${a.climbs.length === 1 ? "" : "s"} (at least 8 m of gain at 2.5% or steeper). Hover one to see it on the map, or click to watch it in 3D.${a.climbs.some((c) => c.vam !== undefined) ? ` VAM is how fast you gained height on it, per hour of moving time${s.vam !== undefined ? `: ${formatVam(s.vam, u)} across all climbs` : ""}.` : ""}`
               : hi - lo < 15
                 ? "Mostly flat. The axis is zoomed in, so read the range above before the shape."
                 : "No sustained climbs (at least 8 m of gain at 2.5% or steeper)."}

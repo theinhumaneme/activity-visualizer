@@ -5,6 +5,8 @@ import { simplifyTrack } from "./simplify";
 import type { LibraryRecord } from "./types";
 
 export const TRACK_POINTS = 600;
+/** Bump when a record gains fields, so saved ones are rebuilt from their files. */
+export const RECORD_VERSION = 2;
 
 /**
  * Reduces one analyzed activity to the light record the library keeps. Everything here comes
@@ -20,6 +22,7 @@ export function buildRecord(activity: Activity, a: Analysis, meta: { id: string;
       )
     : null;
   return {
+    version: RECORD_VERSION,
     id: meta.id,
     fileName: meta.fileName,
     activityIndex: meta.activityIndex,
@@ -37,6 +40,10 @@ export function buildRecord(activity: Activity, a: Analysis, meta: { id: string;
     maxHr: s.maxHr,
     avgCadence: s.avgCadence,
     efficiency: s.efficiency,
+    gapPace: s.gapPace,
+    trimp: s.trimp,
+    tss: a.power?.tss,
+    zoneSeconds: a.zones.length ? a.zones.map((z) => z.seconds) : undefined,
     elevGain: a.elevationSource === "none" ? undefined : s.elevGain,
     elevSource: a.elevationSource,
     calories: activity.fileTotals.calories,

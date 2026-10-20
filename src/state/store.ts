@@ -31,6 +31,8 @@ const STATS_KEY = "rv:video-stats";
 const DETAIL_KEY = "rv:map-detail";
 const WEATHER_KEY = "rv:weather";
 const FTP_KEY = "rv:ftp";
+const WEIGHT_KEY = "rv:weight";
+const W_PRIME_KEY = "rv:w-prime";
 const LOOK_IDS: LookId[] = ["night", "golden", "editorial", "satellite", "noir", "bluehour", "blueprint"];
 
 function storedLook(): LookId {
@@ -215,6 +217,21 @@ function storedFtp(): number {
   return 0;
 }
 
+/** A remembered number within [lo, hi], or 0 when unset. */
+function storedNumber(key: string, lo: number, hi: number): number {
+  try {
+    const v = Number(localStorage.getItem(key));
+    if (v >= lo && v <= hi) return v;
+  } catch {
+    // Storage unavailable.
+  }
+  return 0;
+}
+/** Body weight, kg (0 = not entered). */
+const storedWeight = () => storedNumber(WEIGHT_KEY, 30, 200);
+/** W′, joules (0 = the default). */
+const storedWPrime = () => storedNumber(W_PRIME_KEY, 5000, 50000);
+
 let demAbort: AbortController | null = null;
 /** Bumped by each activity switch (and reset): a switch lands only if no newer one started. */
 let selection = 0;
@@ -262,7 +279,7 @@ export const useStore = create<State>((set, get) => {
   /** Switches to an activity once its first analysis is ready, so pages never see a mismatched pair. */
   async function selectActivity(activity: Activity) {
     const mine = ++selection;
-    const settings = defaultSettings(activity, storedUnits(), storedPrivacy(), storedFtp());
+    const settings = defaultSettings(activity, storedUnits(), storedPrivacy(), storedFtp(), storedWeight(), storedWPrime());
     const first = await analyzeOffThread(activity, settings, null);
     if (!first || mine !== selection) return;
     demAbort?.abort();
@@ -446,9 +463,14 @@ export const useStore = create<State>((set, get) => {
           // Not critical.
         }
       }
-      if (patch.ftp !== undefined) {
+      for (const [key, value] of [
+        [FTP_KEY, patch.ftp],
+        [WEIGHT_KEY, patch.weight],
+        [W_PRIME_KEY, patch.wPrime],
+      ] as const) {
+        if (value === undefined) continue;
         try {
-          localStorage.setItem(FTP_KEY, String(patch.ftp));
+          localStorage.setItem(key, String(value));
         } catch {
           // Not critical.
         }

@@ -1,7 +1,9 @@
 import { useMemo } from "react";
 import type { Units } from "../../lib/analysis/types";
-import { formatDuration, formatElevation, formatMotion } from "../../lib/format/format";
-import { recap } from "../../lib/library/aggregate";
+import { formatDuration, formatElevation, formatMotion, formatPace, unitLabel, unitLength } from "../../lib/format/format";
+import { eddington, recap, streaks } from "../../lib/library/aggregate";
+import { today } from "../../lib/library/load";
+import { predictRaces } from "../../lib/library/predict";
 import type { PersonalRecord } from "../../lib/library/records";
 import type { RouteGroup } from "../../lib/library/similarity";
 import type { LibraryRecord } from "../../lib/library/types";
@@ -39,6 +41,9 @@ export function Recap({
 }) {
   const r = useMemo(() => recap(records, groups, kind === "all" ? null : kind), [records, groups, kind]);
   const byId = useMemo(() => new Map(records.map((x) => [x.id, x])), [records]);
+  const st = useMemo(() => streaks(records, today()), [records]);
+  const ed = useMemo(() => eddington(records, unitLength(units)), [records, units]);
+  const predictions = useMemo(() => (kind === "run" || kind === "all" ? predictRaces(prs) : []), [prs, kind]);
   if (!r.count) return <p className="py-10 text-center text-muted">Nothing in this period yet.</p>;
   const plural = sportPlural(kind);
   const one = sportSingular(kind);
@@ -91,6 +96,21 @@ export function Recap({
         {r.fastest10k && (
           <Tile label="Fastest 10K" value={formatDuration(r.fastest10k.seconds)} sub={`${pace(r.fastest10k)} · ${shortDate(r.fastest10k)}`} />
         )}
+        <Tile
+          label="Longest streak"
+          value={`${st.longestDays} ${st.longestDays === 1 ? "day" : "days"}`}
+          sub={
+            <>
+              {st.longestWeeks} {st.longestWeeks === 1 ? "week" : "weeks"} in a row at best
+              {st.currentDays > 1 ? ` · on a ${st.currentDays}-day streak now` : st.currentWeeks > 1 ? ` · ${st.currentWeeks} weeks running now` : ""}
+            </>
+          }
+        />
+        <Tile
+          label="Eddington number"
+          value={ed.e}
+          sub={`${ed.e} days of ${ed.e}+ ${unitLabel(units)}. ${ed.toNext} more ${ed.toNext === 1 ? "day" : "days"} of ${ed.e + 1}+ for ${ed.e + 1}.`}
+        />
         {r.mostRun && (
           <Tile
             label="Most-repeated route"
@@ -101,6 +121,26 @@ export function Recap({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
+        {predictions.length > 0 && (
+          <section className="rounded-2xl border border-grid bg-surface p-4 sm:p-5 lg:col-span-2">
+            <div className="label-caps text-muted">Race predictions</div>
+            <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+              {predictions.map((p) => (
+                <div key={p.label} className="min-w-0">
+                  <div className="text-sm text-ink-2">{p.label}</div>
+                  <div className="font-display text-2xl font-semibold leading-tight tabular">{formatDuration(p.seconds)}</div>
+                  <div className="text-xs text-muted tabular">
+                    {formatPace((p.seconds / p.distance) * 1000, units)} · {p.actual ? "your best" : `from your ${p.from.label}`}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-muted">
+              Riegel's formula on your fastest run efforts of 3 km or more {periodLabel === "All time" ? "" : "in this period "}(time × (distance
+              ratio)^1.06). It assumes you've trained for the distance, so longer races read optimistic if you haven't.
+            </p>
+          </section>
+        )}
         <section className="rounded-2xl border border-grid bg-surface p-4 sm:p-5">
           <div className="label-caps text-muted">When you head out</div>
           <p className="mt-1 text-base font-medium">

@@ -2,6 +2,7 @@ import type { Activity, Sample } from "../parse/types";
 import type { CleaningReport } from "./clean";
 import type { Climb } from "./climbs";
 import type { Intervals } from "./intervals";
+import type { HrRecovery, Steepest } from "./metrics";
 import type { Moment } from "./moments";
 import type { PowerAnalysis } from "./power";
 import type { Privacy } from "./privacy";
@@ -24,6 +25,10 @@ export interface Settings {
   privacyRadius: number;
   /** Functional threshold power, watts (0 = estimate from the activity). */
   ftp: number;
+  /** Body weight, kg (0 = not entered), for watts per kilo. */
+  weight: number;
+  /** Anaerobic work capacity W′, joules (0 = the typical 20 kJ). */
+  wPrime: number;
 }
 
 export interface Split {
@@ -114,6 +119,10 @@ export interface Summary {
   /** Aerobic decoupling, % (positive = HR drifted up relative to pace). */
   decoupling?: number;
   trimp?: number;
+  /** Climbing VAM, m/h: gain over the detected climbs ÷ the moving time spent on them. */
+  vam?: number;
+  /** Drop in heart rate the minute after you stopped. */
+  hrRecovery?: HrRecovery;
   paceCv?: number;
   /** Seconds per km, first and second half by distance. */
   firstHalfPace: number;
@@ -151,6 +160,8 @@ export interface Analysis {
   slowdowns: Slowdown[];
   intervals: Intervals | null;
   climbs: Climb[];
+  /** Steepest 100 m and 1 km up, steepest 1 km down (empty without elevation). */
+  steepest: Steepest;
   /** Power-meter analysis (null without power data). */
   power: PowerAnalysis | null;
   /** Notable points for the flyover and copy (fastest split, high point, reps…). */

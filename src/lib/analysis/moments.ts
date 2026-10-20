@@ -2,11 +2,11 @@
 // label · number · context ("FASTEST KM · 4:38 /km · 22 s under average"), anchored to a point
 // on the route. Exactly one is the hero: the single most dramatic beat of the activity.
 
-import { formatDuration, formatElevation, formatPace, formatSpeed, unitLabel, unitLength, usesPace } from "../format/format";
+import { formatDuration, formatElevation, formatGrade, formatPace, formatSpeed, formatVam, unitLabel, unitLength, usesPace } from "../format/format";
 import { climbLabel } from "./climbs";
 import type { Analysis } from "./types";
 
-export type MomentKind = "climb" | "high-point" | "fastest-split" | "rep" | "final-kick";
+export type MomentKind = "climb" | "steepest" | "high-point" | "fastest-split" | "rep" | "final-kick";
 
 export interface Moment {
   id: string;
@@ -146,9 +146,25 @@ function climbMoments(a: Input): Moment[] {
       to: c.endIdx,
       label: climbLabel(c).toUpperCase(),
       value: `+${formatElevation(c.gain, u)}`,
-      context: `${Math.round(c.grade * 100)}% average over ${c.length >= 1000 ? `${(c.length / 1000).toFixed(1)} km` : `${Math.round(c.length)} m`}`,
+      context: `${Math.round(c.grade * 100)}% average over ${c.length >= 1000 ? `${(c.length / 1000).toFixed(1)} km` : `${Math.round(c.length)} m`}${c.vam !== undefined ? ` · ${formatVam(c.vam, u)}` : ""}`,
       hero: false,
       dwell: 2,
+    });
+  }
+  // The steepest 100 m when it's properly steep and not already inside a featured climb.
+  const st = a.steepest.up100;
+  if (st && st.grade >= 0.08 && !out.some((m) => st.startIdx < m.to && st.endIdx > m.from)) {
+    out.push({
+      id: "steepest",
+      kind: "steepest",
+      at: st.endIdx,
+      from: st.startIdx,
+      to: st.endIdx,
+      label: "STEEPEST 100 M",
+      value: formatGrade(st.grade),
+      context: `+${formatElevation(st.grade * st.length, u)} in ${u === "metric" ? "100 m" : "330 ft"}`,
+      hero: false,
+      dwell: 1.4,
     });
   }
   // The high point, unless a climb already ends there.

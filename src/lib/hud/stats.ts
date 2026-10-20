@@ -6,7 +6,7 @@ import { motionLabel, usesPace } from "../format/format";
 import type { Weather } from "../weather";
 
 export type LiveStat = "time" | "moving" | "distance" | "motion" | "gap" | "hr" | "elev" | "grade" | "cadence" | "power" | "temp" | "wind";
-export type EndStat = "distance" | "total" | "moving" | "stopped" | "avg" | "gap" | "best" | "gain" | "loss" | "high" | "avgHr" | "maxHr" | "cadence" | "power" | "np" | "work" | "tss" | "calories" | "weather" | "wind";
+export type EndStat = "distance" | "total" | "moving" | "stopped" | "avg" | "gap" | "best" | "gain" | "loss" | "high" | "vam" | "steep" | "avgHr" | "maxHr" | "hrr" | "cadence" | "power" | "np" | "work" | "tss" | "calories" | "weather" | "wind";
 
 export const DEFAULT_LIVE: LiveStat[] = ["time", "distance", "motion", "hr", "elev", "grade"];
 export const DEFAULT_END: EndStat[] = ["distance", "total", "avg", "gain", "avgHr"];
@@ -46,8 +46,11 @@ const END: { key: EndStat; label: (a: Analysis) => string; has: Has }[] = [
   { key: "gain", label: () => "Elevation gain", has: (a) => a.summary.elevGain !== undefined },
   { key: "loss", label: () => "Elevation loss", has: (a) => a.summary.elevLoss !== undefined },
   { key: "high", label: () => "High point", has: (a) => a.summary.elevMax !== undefined },
+  { key: "vam", label: () => "Climbing VAM", has: (a) => a.summary.vam !== undefined },
+  { key: "steep", label: () => "Steepest 100 m", has: (a) => !!a.steepest.up100 },
   { key: "avgHr", label: () => "Avg heart rate", has: (a) => a.summary.avgHr !== undefined },
   { key: "maxHr", label: () => "Max heart rate", has: (a) => a.summary.maxHr !== undefined },
+  { key: "hrr", label: () => "HR recovery", has: (a) => !!a.summary.hrRecovery },
   { key: "cadence", label: () => "Avg cadence", has: (a) => a.summary.avgCadence !== undefined },
   { key: "power", label: () => "Avg power", has: hasPower },
   { key: "np", label: () => "Normalized power", has: (a) => !!a.power },

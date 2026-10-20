@@ -10,6 +10,10 @@ export interface Climb {
   grade: number;
   /** "HC", "1"…"4", or null when it doesn't reach category 4. */
   category: string | null;
+  /** Moving seconds spent on it (timed activities, climbs of a minute or more). */
+  duration?: number;
+  /** Vertical meters per hour over that time. */
+  vam?: number;
 }
 
 const CATEGORIES: [string, number][] = [

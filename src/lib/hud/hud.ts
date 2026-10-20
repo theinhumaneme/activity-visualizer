@@ -17,9 +17,11 @@ import {
   formatDistance,
   formatDuration,
   formatElevation,
+  formatGrade,
   formatMotion,
   formatPace,
   formatSpeed,
+  formatVam,
   motionLabel,
   unitLabel,
   usesPace,
@@ -855,7 +857,10 @@ function endStats(a: Analysis, chosen: readonly EndStat[] = DEFAULT_END, weather
     else if (key === "gain") out.push({ label: "ELEV GAIN", ...split(formatElevation(sm.elevGain!, u)) });
     else if (key === "loss") out.push({ label: "ELEV LOSS", ...split(formatElevation(sm.elevLoss!, u)) });
     else if (key === "high") out.push({ label: "HIGH POINT", ...split(formatElevation(sm.elevMax!, u)) });
+    else if (key === "vam") out.push({ label: "CLIMBING VAM", value: formatVam(sm.vam!, u, false), unit: u === "metric" ? "m/h" : "ft/h" });
+    else if (key === "steep") out.push({ label: "STEEPEST 100 M", value: formatGrade(a.steepest.up100!.grade).replace("%", ""), unit: "%" });
     else if (key === "avgHr") out.push({ label: "AVG HR", value: String(Math.round(sm.avgHr!)), unit: "bpm" });
+    else if (key === "hrr") out.push({ label: "1-MIN HR DROP", value: `−${Math.round(sm.hrRecovery!.drop)}`, unit: "bpm" });
     else if (key === "maxHr") out.push({ label: "MAX HR", value: String(Math.round(sm.maxHr!)), unit: "bpm" });
     else if (key === "cadence") out.push({ label: "AVG CADENCE", value: String(Math.round(sm.avgCadence!)), unit: SPORTS[kind].footCadence ? "spm" : "rpm" });
     else if (key === "power") out.push({ label: "AVG POWER", value: String(Math.round(sm.avgPower!)), unit: "W" });

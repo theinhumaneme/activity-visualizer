@@ -6,6 +6,7 @@ import { detectClimbs } from "./climbs";
 import { ELEV_SMOOTH_HALF, resolveElevation } from "./elevation";
 import { minetti } from "./gap";
 import { detectIntervals } from "./intervals";
+import { hrRecovery, steepest, withVam } from "./metrics";
 import { findMoments } from "./moments";
 import { computePower } from "./power";
 import { computePrivacy } from "./privacy";
@@ -283,7 +284,11 @@ export function analyze(activity: Activity, settings: Settings, demAll: Float64A
   );
   const paceHistogram = computePaceHistogram(settings.units, !profile.pace, speed, t, moving);
   const intervals = activity.routeOnly ? null : detectIntervals({ t, dist, speed: speedMove, hr, moving }, lapsIn(activity, trimmed.offset, n));
-  const climbs = elev ? detectClimbs(dist, elev) : [];
+  const detected = elev ? detectClimbs(dist, elev) : [];
+  const vam = activity.routeOnly ? { climbs: detected } : withVam(detected, movingTime);
+  const climbs = vam.climbs;
+  summary.vam = vam.vam;
+  if (hasHr && !activity.routeOnly) summary.hrRecovery = hrRecovery(t, hr, moving, movingTime, stops);
   const privacy = computePrivacy(samples, settings.privacyRadius);
 
   const analysis: Analysis = {
@@ -311,7 +316,8 @@ export function analyze(activity: Activity, settings: Settings, demAll: Float64A
     slowdowns,
     intervals,
     climbs,
-    power: activity.routeOnly ? null : computePower(samples, t, settings.ftp ?? 0),
+    steepest: elev ? steepest(dist, elev, activity.routeOnly ? null : movingTime) : {},
+    power: activity.routeOnly ? null : computePower(samples, t, settings.ftp ?? 0, settings.wPrime ?? 0),
     moments: [],
     privacy,
     cleaning: {

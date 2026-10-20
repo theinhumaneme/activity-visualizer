@@ -3,7 +3,7 @@ import type { Units } from "../lib/analysis/types";
 import { defaultUnits } from "../lib/format/format";
 import { clearEntries, loadEntries, saveEntries } from "../lib/library/persist";
 import { processFiles } from "../lib/library/pool";
-import { isDuplicate } from "../lib/library/record";
+import { RECORD_VERSION, isDuplicate } from "../lib/library/record";
 import type { LibraryEntry } from "../lib/library/types";
 import { DEFAULT_PRIVACY_RADIUS, useStore } from "./store";
 
@@ -53,6 +53,8 @@ interface LibraryState {
   restoring: boolean;
   /** The browser wouldn't keep the last files added (storage full or off): they last this visit only. */
   notSaved: boolean;
+  /** Saved activities from an older version being re-read for the newer stats. */
+  upgrading: { done: number; total: number } | null;
   addFiles(files: File[]): Promise<void>;
   cancel(): void;
   clear(): void;
@@ -76,6 +78,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   units: storedUnits(),
   restoring: typeof indexedDB !== "undefined",
   notSaved: false,
+  upgrading: null,
 
   async addFiles(files) {
     if (get().loading) return;
@@ -178,6 +181,41 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   },
 }));
 
+/**
+ * Re-reads saved activities whose records predate the current version, in the background, so
+ * stats added since (load, zones, GAP) cover the whole library. An activity whose file can't be
+ * read again keeps its old record.
+ */
+async function upgrade(stale: LibraryEntry[]) {
+  // One job per file; its records come back as `${job id}#${activity index}`, matching the saved ids.
+  const files = new Map<string, File>();
+  for (const e of stale) files.set(e.id.slice(0, e.id.lastIndexOf("#")), e.file);
+  const jobs = [...files].map(([id, file]) => ({ id, file }));
+  const fresh = new Map<string, LibraryEntry>();
+  let done = 0;
+  useLibrary.setState({ upgrading: { done, total: jobs.length } });
+  await processFiles(
+    jobs,
+    (job, result) => {
+      done++;
+      if (result.ok) for (const r of result.records) fresh.set(r.id, { ...r, file: job.file });
+      useLibrary.setState({ upgrading: { done, total: jobs.length } });
+    },
+    { concurrency: 2 },
+  );
+  const updated: LibraryEntry[] = [];
+  useLibrary.setState((s) => ({
+    upgrading: null,
+    entries: s.entries.map((e) => {
+      const f = fresh.get(e.id);
+      if (!f || (e.version ?? 1) >= RECORD_VERSION) return e;
+      updated.push(f);
+      return f;
+    }),
+  }));
+  if (updated.length) await saveEntries(updated);
+}
+
 // Bring back the library saved on earlier visits.
 if (typeof indexedDB !== "undefined")
   void loadEntries()
@@ -187,6 +225,8 @@ if (typeof indexedDB !== "undefined")
         const ids = new Set(s.entries.map((e) => e.id));
         return { entries: [...s.entries, ...saved.filter((e) => !ids.has(e.id))].sort((a, b) => a.startTime - b.startTime) };
       });
+      const stale = saved.filter((e) => (e.version ?? 1) < RECORD_VERSION && e.id.includes("#"));
+      if (stale.length) void upgrade(stale).catch(() => useLibrary.setState({ upgrading: null }));
     })
     .catch(() => {})
     .finally(() => useLibrary.setState({ restoring: false }));

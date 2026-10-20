@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bucketMinMax, clippedRange, consistencyLabel, quantile, rawSpeed, shares, splitOffsets, timelineSpans, withAlpha } from "./math";
+import { bucketMinMax, clippedRange, consistencyLabel, driftSeries, quantile, rawSpeed, shares, splitOffsets, timelineSpans, withAlpha } from "./math";
 
 describe("analysis view math", () => {
   it("takes nearest-rank quantiles", () => {
@@ -68,5 +68,23 @@ describe("analysis view math", () => {
     expect(withAlpha("#ff0000", 0.5)).toBe("rgba(255,0,0,0.5)");
     expect(withAlpha("#fff", 1)).toBe("rgba(255,255,255,1)");
     expect(withAlpha("rgb(1, 2, 3)", 0.2)).toBe("rgba(1,2,3,0.2)");
+  });
+
+  it("reads cardiac drift as falling distance per heartbeat at the same pace", () => {
+    // 40 min at 3 m/s, HR rising steadily from 140 to 160.
+    const n = 2401;
+    const t = Array.from({ length: n }, (_, i) => i);
+    const d = t.map((x) => x * 3);
+    const hr = t.map((x) => 140 + (20 * x) / (n - 1));
+    const moving = t.map(() => 1);
+    const r = driftSeries(t, d, hr, moving)!;
+    expect(r.firstHalf).toBeGreaterThan(r.secondHalf);
+    expect(r.drift).toBeGreaterThan(5);
+    expect(r.drift).toBeLessThan(9);
+    // The window needs room on both sides.
+    expect(r.values[10]).toBeNaN();
+    expect(r.values[1200]).toBeCloseTo(180 / 150, 2);
+    // Under ten minutes there's nothing to read.
+    expect(driftSeries(t.slice(0, 500), d.slice(0, 500), hr.slice(0, 500), moving.slice(0, 500))).toBeNull();
   });
 });

@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { ColorModePicker } from "../components/ColorModePicker";
 import { RouteMap } from "../components/RouteMap";
-import { BestEfforts, CadenceChart, EffortCard, HoverReadout, PaceDistribution } from "../components/analysis/Cards";
+import { BestEfforts, CadenceChart, DriftChart, EffortCard, HoverReadout, PaceDistribution } from "../components/analysis/Cards";
 import { ElevationProfile } from "../components/analysis/ElevationProfile";
 import { HeartRateChart, ZoneBreakdown } from "../components/analysis/HeartRate";
 import { IntervalsPanel } from "../components/analysis/IntervalsPanel";
 import { PaceChart } from "../components/analysis/PaceChart";
-import { PowerChart, PowerCurve, PowerSummary, PowerZones } from "../components/analysis/Power";
+import { PowerChart, PowerCurve, PowerSummary, PowerZones, WBalanceChart } from "../components/analysis/Power";
 import { SplitsTable } from "../components/analysis/SplitsTable";
 import { SummaryHeader } from "../components/analysis/SummaryHeader";
 import { WindSection } from "../components/analysis/Wind";
@@ -159,6 +159,7 @@ export function AnalysisPage() {
             <section aria-labelledby="power-h" className="space-y-4">
               <SectionHeading id="power" title={<span id="power-h">Power</span>} />
               <PowerSummary a={a} />
+              {a.power.wbal && <WBalanceChart a={a} />}
               <div className="grid gap-4 xl:grid-cols-2">
                 <PowerCurve a={a} />
                 {a.power.zones.length > 0 && <PowerZones a={a} />}
@@ -186,7 +187,10 @@ export function AnalysisPage() {
           {!routeOnly && (
             <section aria-labelledby="efficiency-h">
               <SectionHeading id="efficiency" title={<span id="efficiency-h">Efficiency</span>} />
-              <EffortCard a={a} />
+              <div className="space-y-4">
+                <EffortCard a={a} />
+                {hasZones && <DriftChart a={a} />}
+              </div>
             </section>
           )}
         </div>

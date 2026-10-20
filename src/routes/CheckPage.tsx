@@ -2,7 +2,11 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Badge, Card, Chevron, GroupHeading, Help, NextStep, Page, Segmented, Spinner, Tag } from "../components/ui";
 import type { QualityItem, QualityLevel } from "../lib/analysis/types";
 import { formatDateTime, formatDistance, formatDuration, formatUtcOffset } from "../lib/format/format";
+import { DEFAULT_W_PRIME } from "../lib/analysis/power";
 import { useStore } from "../state/store";
+
+/** Kilograms per pound. */
+const LB = 0.45359237;
 
 const LEVEL: Record<QualityLevel, { label: string; tone: "warning" | "neutral" | "good"; path: string }> = {
   warn: { label: "Warning", tone: "warning", path: "M12 8v5m0 3h.01" },
@@ -290,6 +294,51 @@ export function CheckPage() {
                       : a.power.ftp > 0
                         ? `Estimated at ${a.power.ftp} W from your best 20 minutes. Enter your real FTP for accurate zones and training stress.`
                         : "Too short to estimate. Enter your FTP to see power zones and training stress."}
+                  </p>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <Field label="Weight">
+                      <span className="relative block">
+                        <input
+                          key={settings.units}
+                          type="number"
+                          min={settings.units === "metric" ? 30 : 66}
+                          max={settings.units === "metric" ? 200 : 440}
+                          step="0.1"
+                          className="field pr-10 tabular"
+                          placeholder={settings.units === "metric" ? "e.g. 70" : "e.g. 155"}
+                          defaultValue={settings.weight > 0 ? +(settings.units === "metric" ? settings.weight : settings.weight / LB).toFixed(1) : ""}
+                          onChange={(e) => {
+                            const kg = settings.units === "metric" ? Number(e.target.value) : Number(e.target.value) * LB;
+                            if (e.target.value === "") updateSettings({ weight: 0 });
+                            else if (kg >= 30 && kg <= 200) updateSettings({ weight: kg });
+                          }}
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-label text-muted">{settings.units === "metric" ? "kg" : "lb"}</span>
+                      </span>
+                    </Field>
+                    <Field label="W′ (anaerobic capacity)">
+                      <span className="relative block">
+                        <input
+                          type="number"
+                          min={5}
+                          max={50}
+                          step="0.5"
+                          className="field pr-10 tabular"
+                          placeholder={String(DEFAULT_W_PRIME / 1000)}
+                          defaultValue={settings.wPrime > 0 ? settings.wPrime / 1000 : ""}
+                          onChange={(e) => {
+                            const kj = Number(e.target.value);
+                            if (e.target.value === "") updateSettings({ wPrime: 0 });
+                            else if (kj >= 5 && kj <= 50) updateSettings({ wPrime: kj * 1000 });
+                          }}
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-label text-muted">kJ</span>
+                      </span>
+                    </Field>
+                  </div>
+                  <p className="mt-3 text-sm text-ink-2">
+                    Weight gives watts per kilo. W′ is how much work you can do above FTP before you have to ease off; leave it empty for a typical{" "}
+                    {DEFAULT_W_PRIME / 1000} kJ. Both are remembered.
                   </p>
                 </section>
               )}

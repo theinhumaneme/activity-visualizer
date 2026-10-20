@@ -8,7 +8,7 @@ import { buckets, inPeriod, localHour, periodOptions, recap, rollingMean, weekSt
 import { focusBounds, heatmapData } from "./heatmap";
 import { trackVisibility } from "./privacy";
 import { personalRecords, recordsByActivity } from "./records";
-import { buildRecord, isDuplicate } from "./record";
+import { RECORD_VERSION, buildRecord, isDuplicate } from "./record";
 import { distanceAt, standings, timeAtProgress, trail } from "./race";
 import { groupRoutes, hausdorff, routeShape, sameRoute } from "./similarity";
 import { douglasPeucker, simplifyTrack, type TrackInput } from "./simplify";
@@ -429,6 +429,9 @@ describe("records from the sample file", () => {
     expect(rec.track!.dist[rec.track!.dist.length - 1]).toBeCloseTo(a.summary.distance, 0);
     expect(rec.bestEfforts.length).toBe(a.bestEfforts.length);
     expect(rec.avgCadence).toBeGreaterThan(100); // the sample has run cadence
+    expect(rec.version).toBe(RECORD_VERSION);
+    expect(rec.trimp).toBeCloseTo(a.summary.trimp!, 6);
+    expect(rec.zoneSeconds!.reduce((x, y) => x + y, 0)).toBeCloseTo(a.zones.reduce((x, z) => x + z.seconds, 0), 6);
   });
 
   it("hides the same points as computePrivacy", () => {

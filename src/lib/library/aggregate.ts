@@ -89,6 +89,9 @@ export function inPeriod(r: LibraryRecord, period: Period, now = Date.now()): bo
   return String(localYear(r)) === period;
 }
 
+/** The period runs up to now (all time, the last 12 months, this year). */
+export const periodIncludesNow = (period: Period, now = Date.now()) => inPeriod({ startTime: now } as LibraryRecord, period, now);
+
 /** Trailing mean over the last `n` values (fewer at the start). NaN values are skipped. */
 export function rollingMean(values: number[], n: number): number[] {
   return values.map((_, i) => {
@@ -167,3 +170,59 @@ export function recap(records: LibraryRecord[], groups: RouteGroup[], kind: Spor
     last: sorted[sorted.length - 1] ?? null,
   };
 }
+
+export interface Streaks {
+  /** Consecutive days with an activity, ending today or yesterday (0 otherwise). */
+  currentDays: number;
+  longestDays: number;
+  /** Last day of the longest daily streak. */
+  longestDaysEnd: number | null;
+  /** Consecutive Monday-start weeks with an activity, ending this week or last. */
+  currentWeeks: number;
+  longestWeeks: number;
+}
+
+/** Longest and current run of consecutive values `step` apart, in ascending unique values. */
+function runs(sorted: number[], step: number, now: number) {
+  let longest = 0;
+  let longestEnd: number | null = null;
+  let len = 0;
+  for (let i = 0; i < sorted.length; i++) {
+    len = i > 0 && sorted[i] - sorted[i - 1] === step ? len + 1 : 1;
+    if (len > longest) {
+      longest = len;
+      longestEnd = sorted[i];
+    }
+  }
+  const last = sorted[sorted.length - 1];
+  const current = last !== undefined && now - last <= step ? len : 0;
+  return { longest, longestEnd, current };
+}
+
+/** Daily and weekly streaks; "current" counts back from `todayDay` (a local day number). */
+export function streaks(records: LibraryRecord[], todayDay: number): Streaks {
+  const days = [...new Set(records.map(localDay))].sort((a, b) => a - b);
+  const weeks = [...new Set(days.map(weekStart))].sort((a, b) => a - b);
+  const d = runs(days, 1, todayDay);
+  const w = runs(weeks, 7, weekStart(todayDay));
+  return { currentDays: d.current, longestDays: d.longest, longestDaysEnd: d.longestEnd, currentWeeks: w.current, longestWeeks: w.longest };
+}
+
+export interface Eddington {
+  /** The largest E with at least E days of at least E units. */
+  e: number;
+  /** Days of at least E + 1 units still needed to reach E + 1. */
+  toNext: number;
+}
+
+/** Eddington number over daily distance totals, in `unit` meters (1000 for km, a mile for mi). */
+export function eddington(records: LibraryRecord[], unit: number): Eddington {
+  const byDay = new Map<number, number>();
+  for (const r of records) byDay.set(localDay(r), (byDay.get(localDay(r)) ?? 0) + r.distance / unit);
+  const totals = [...byDay.values()].sort((a, b) => b - a);
+  let e = 0;
+  while (e < totals.length && totals[e] >= e + 1) e++;
+  const atNext = totals.filter((v) => v >= e + 1).length;
+  return { e, toNext: e + 1 - atNext };
+}
+

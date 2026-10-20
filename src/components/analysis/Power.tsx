@@ -5,7 +5,7 @@ import type { Analysis } from "../../lib/analysis/types";
 import { formatDuration } from "../../lib/format/format";
 import { useTheme } from "../../state/theme";
 import { type Band, Chart, type RefLine } from "../Chart";
-import { Card, Help, Stat, Tag } from "../ui";
+import { Card, Explain, Help, Stat, Tag } from "../ui";
 import { shares } from "./math";
 import { useStretch } from "./stretch";
 
@@ -66,9 +66,53 @@ export function PowerChart({ a }: { a: Analysis }) {
   );
 }
 
+const perKg = (w: number, kg: number) => `${(w / kg).toFixed(2)} W/kg`;
+
+/** W′ balance over the ride: full at the top, drained by efforts above FTP. */
+export function WBalanceChart({ a }: { a: Analysis }) {
+  const wb = a.power!.wbal!;
+  const values = useMemo(() => Float64Array.from(wb.series, (j) => j / 1000), [wb]);
+  const range = useMemo<[number, number]>(() => [Math.min(0, wb.min / 1000) - 1, (wb.wPrime / 1000) * 1.04], [wb]);
+  const fmt = useMemo(() => ({ value: (v: number) => `${v.toFixed(1)} kJ`, tick: (v: number) => v.toFixed(0) }), []);
+  return (
+    <Chart
+      title="W′ balance"
+      unit="kJ"
+      values={values}
+      color="--series-power"
+      area
+      height={150}
+      range={range}
+      formatValue={fmt.value}
+      formatTick={fmt.tick}
+      aside={
+        <span className="tabular">
+          lowest {(wb.min / 1000).toFixed(1)} of {wb.wPrime / 1000} kJ
+          {wb.wPrimeEstimated && (
+            <>
+              {" "}
+              <Tag tone="warning" title={`W′ assumed to be a typical ${wb.wPrime / 1000} kJ`}>
+                W′ assumed
+              </Tag>
+            </>
+          )}
+        </span>
+      }
+      footer={
+        <Explain>
+          The work you can still do above FTP ({a.power!.ftp} W). Efforts above it drain the tank; riding below it refills it, faster the emptier it is.
+          Near zero means you were close to cracking.
+          {wb.min < 0 && " It dips below zero here, which the body can't do: your FTP or W′ is probably higher than the values used, so enter yours on the Check step."}
+        </Explain>
+      }
+    />
+  );
+}
+
 /** The headline numbers: normalized power, intensity and stress against FTP, work. */
 export function PowerSummary({ a }: { a: Analysis }) {
   const p = a.power!;
+  const kg = a.settings.weight;
   return (
     <Card title="Power" aside={<FtpTag p={p} />}>
       <div className="grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-3">
@@ -78,6 +122,18 @@ export function PowerSummary({ a }: { a: Analysis }) {
         {p.intensity !== undefined && <Stat label="Intensity" value={p.intensity.toFixed(2)} sub={`of FTP ${p.ftp} W`} />}
         {p.tss !== undefined && <Stat label="Training stress" value={String(Math.round(p.tss))} sub="TSS · 100 = an hour at FTP" />}
         <Stat label="Work" value={`${Math.round(p.work).toLocaleString()} kJ`} sub={`≈ ${Math.round(p.work).toLocaleString()} kcal burned`} />
+        {kg > 0 && <Stat label="Watts per kilo" value={perKg(p.np, kg)} sub={p.ftp > 0 ? `normalized · FTP ${perKg(p.ftp, kg)}` : "normalized power"} />}
+        {p.wbal && (
+          <Stat
+            label="Lowest W′ balance"
+            value={`${(p.wbal.min / 1000).toFixed(1)} kJ`}
+            sub={
+              p.wbal.min < 0
+                ? "below empty, so your FTP or W′ is likely higher than set"
+                : `${Math.round((p.wbal.min / p.wbal.wPrime) * 100)}% of ${p.wbal.wPrime / 1000} kJ left`
+            }
+          />
+        )}
       </div>
       <Help label="What these mean">
         <p>
@@ -86,6 +142,24 @@ export function PowerSummary({ a }: { a: Analysis }) {
         </p>
         <p>Intensity is NP ÷ FTP. Training stress combines intensity and duration: an hour flat out at FTP is 100.</p>
         <p>Work is total energy delivered to the pedals; at typical efficiency it is close to the calories you burned.</p>
+        <p>
+          {kg > 0 ? (
+            "Watts per kilo divides power by the weight you entered on the Check step: it's what decides how fast you climb."
+          ) : (
+            <>
+              <Link to="/check" className="font-medium text-ink underline underline-offset-2">
+                Enter your weight on the Check step
+              </Link>{" "}
+              to see watts per kilo.
+            </>
+          )}
+        </p>
+        {p.wbal && (
+          <p>
+            W′ balance treats FTP as the line between sustainable and not, and tracks how much of your {p.wbal.wPrime / 1000} kJ above it is left
+            {p.wbal.wPrimeEstimated ? " (a typical value; enter yours on the Check step)" : ""}.
+          </p>
+        )}
         <p>
           {p.ftpEstimated ? (
             p.ftp > 0 ? (
@@ -119,15 +193,16 @@ export function PowerCurve({ a }: { a: Analysis }) {
   const p = a.power!;
   const stretch = useStretch();
   const top = p.curve[0]?.watts || 1;
+  const kg = a.settings.weight;
   return (
-    <Card title="Power curve" description="Your best average power for each duration, anywhere in the ride.">
+    <Card title="Power curve" description="Your best average power for each duration, anywhere in the ride." aside={kg > 0 && <span className="tabular">W · W/kg</span>}>
       <ul className="space-y-1.5">
         {p.curve.map((c) => {
           return (
             <li
               key={c.seconds}
               tabIndex={0}
-              className="grid cursor-pointer grid-cols-[3.75rem_minmax(0,1fr)_4.5rem] items-center gap-x-3 rounded-md px-1 py-1 text-sm outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2"
+              className={`grid cursor-pointer ${kg > 0 ? "grid-cols-[3.75rem_minmax(0,1fr)_4.5rem_4.5rem]" : "grid-cols-[3.75rem_minmax(0,1fr)_4.5rem]"} items-center gap-x-3 rounded-md px-1 py-1 text-sm outline-none transition-colors hover:bg-surface-2 focus-visible:bg-surface-2`}
               {...stretch({ from: c.startIdx, to: c.endIdx, label: `Best ${curveLabel(c.seconds)} power` })}
             >
               <span className="font-medium text-ink-2 tabular">{curveLabel(c.seconds)}</span>
@@ -135,6 +210,7 @@ export function PowerCurve({ a }: { a: Analysis }) {
                 <span className="block h-full rounded-full bg-series-power" style={{ width: `${(c.watts / top) * 100}%` }} />
               </span>
               <span className="text-right font-semibold text-ink tabular">{watts(c.watts)}</span>
+              {kg > 0 && <span className="text-right text-ink-2 tabular">{(c.watts / kg).toFixed(2)}</span>}
             </li>
           );
         })}

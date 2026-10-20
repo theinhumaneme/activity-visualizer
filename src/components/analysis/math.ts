@@ -138,3 +138,61 @@ export function withAlpha(color: string, alpha: number): string {
   const m = c.match(/^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/i);
   return m ? `rgba(${m[1]},${m[2]},${m[3]},${alpha})` : c;
 }
+
+export interface DriftSeries {
+  /** Meters per heartbeat over a window of moving time centered on each sample (NaN outside it). */
+  values: Float64Array;
+  /** The same ratio over the first and second half of moving time. */
+  firstHalf: number;
+  secondHalf: number;
+  /** (first − second) ÷ first, %: positive when heart rate climbed for the same output. */
+  drift: number;
+}
+
+/**
+ * Efficiency (distance per heartbeat) through the activity, for the cardiac-drift chart. `flat`
+ * optionally scales each interval's distance to its flat-ground equivalent so hills don't read as
+ * drift. Only moving intervals with a heart-rate reading count. Null with under 10 minutes of it.
+ */
+export function driftSeries(
+  t: ArrayLike<number>,
+  dist: ArrayLike<number>,
+  hr: ArrayLike<number>,
+  moving: ArrayLike<number>,
+  flat: ((i: number) => number) | null = null,
+  window = 300,
+): DriftSeries | null {
+  const n = t.length;
+  // Cumulative moving seconds, distance and heartbeats, counting only intervals with HR.
+  const T = new Float64Array(n);
+  const D = new Float64Array(n);
+  const B = new Float64Array(n);
+  for (let i = 0; i < n - 1; i++) {
+    const dt = Math.min(t[i + 1] - t[i], 10);
+    const ok = moving[i] === 1 && Number.isFinite(hr[i]) && hr[i] > 0;
+    T[i + 1] = T[i] + (ok ? dt : 0);
+    D[i + 1] = D[i] + (ok ? (dist[i + 1] - dist[i]) * (flat ? flat(i) : 1) : 0);
+    B[i + 1] = B[i] + (ok ? (hr[i] * dt) / 60 : 0);
+  }
+  const total = T[n - 1];
+  if (total < 600) return null;
+  const values = new Float64Array(n).fill(NaN);
+  const half = window / 2;
+  let lo = 0;
+  let hi = 0;
+  for (let i = 0; i < n; i++) {
+    if (!moving[Math.min(i, n - 2)]) continue;
+    const a = T[i] - half;
+    const b = T[i] + half;
+    if (a < 0 || b > total) continue;
+    while (lo < n - 1 && T[lo + 1] <= a) lo++;
+    while (hi < n - 1 && T[hi] < b) hi++;
+    const beats = B[hi] - B[lo];
+    if (beats > 0) values[i] = (D[hi] - D[lo]) / beats;
+  }
+  let mid = 0;
+  while (mid < n - 1 && T[mid] < total / 2) mid++;
+  const firstHalf = B[mid] > 0 ? D[mid] / B[mid] : NaN;
+  const secondHalf = B[n - 1] - B[mid] > 0 ? (D[n - 1] - D[mid]) / (B[n - 1] - B[mid]) : NaN;
+  return { values, firstHalf, secondHalf, drift: ((firstHalf - secondHalf) / firstHalf) * 100 };
+}

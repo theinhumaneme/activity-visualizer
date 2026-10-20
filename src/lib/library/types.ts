@@ -23,6 +23,8 @@ export interface EffortRecord {
 
 /** What the library keeps per activity: summary numbers only, never the full sample stream. */
 export interface LibraryRecord {
+  /** Which build of the record this is; older ones are rebuilt from their file when the library loads. */
+  version?: number;
   id: string;
   fileName: string;
   /** Index of this activity within its file (files can hold several). */
@@ -43,6 +45,14 @@ export interface LibraryRecord {
   avgCadence?: number;
   /** Meters per heartbeat (moving speed ÷ moving HR), from the analysis. */
   efficiency?: number;
+  /** Grade-adjusted pace, seconds per km (foot sports with elevation). */
+  gapPace?: number;
+  /** Edwards TRIMP from heart rate (zones from an estimated max HR). */
+  trimp?: number;
+  /** Training stress from power (FTP estimated from the ride when not entered). */
+  tss?: number;
+  /** Seconds in each of the five heart-rate zones. */
+  zoneSeconds?: number[];
   /** Gain from the file's altitude (not terrain-corrected in the library). */
   elevGain?: number;
   elevSource: ElevationSource;

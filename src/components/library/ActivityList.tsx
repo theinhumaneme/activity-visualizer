@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import type { Units } from "../../lib/analysis/types";
-import { formatClock, formatDuration, formatMotion, motionLabel } from "../../lib/format/format";
+import { formatClock, formatDuration, formatMotion, formatPace, motionLabel } from "../../lib/format/format";
+import { activityLoad } from "../../lib/library/load";
 import type { PersonalRecord } from "../../lib/library/records";
 import type { LibraryRecord } from "../../lib/library/types";
 import { type SportFilter, distanceText, shortDate, sportLabel } from "./format";
 
-type SortKey = "date" | "distance" | "time" | "pace" | "hr";
+type SortKey = "date" | "distance" | "time" | "pace" | "gap" | "hr" | "load";
 const PAGE = 50;
 
 const shortLabel = (label: string) => label.replace(/^Half marathon$/, "Half").replace(/^Marathon$/, "Full").replace(/^1 mile$/, "Mile").replace(/ km$/, "K");
@@ -38,8 +39,13 @@ export function ActivityList({
           return r.moving;
         case "pace":
           return r.avgSpeed;
+        case "gap":
+          // Faster first when descending, like pace.
+          return r.gapPace ? 1000 / r.gapPace : NaN;
         case "hr":
           return r.avgHr ?? NaN;
+        case "load":
+          return activityLoad(r) ?? NaN;
       }
     };
     return [...records].sort((a, b) => {
@@ -51,6 +57,8 @@ export function ActivityList({
     });
   }, [records, sort]);
 
+  const hasGap = records.some((r) => r.gapPace !== undefined);
+  const hasLoad = records.some((r) => activityLoad(r) !== undefined);
   const header = (key: SortKey, label: string, className = "") => {
     const active = sort.key === key;
     return (
@@ -78,7 +86,9 @@ export function ActivityList({
               {header("distance", "Distance", "text-right")}
               {header("time", "Time", "text-right")}
               {header("pace", kind === "all" ? "Pace / speed" : motionLabel(kind), "text-right")}
+              {hasGap && header("gap", "GAP", "text-right")}
               {header("hr", "HR", "text-right")}
+              {hasLoad && header("load", "Load", "text-right")}
               <th scope="col" className="label-caps px-2 py-2 text-left font-normal text-muted">
                 Records
               </th>
@@ -102,7 +112,17 @@ export function ActivityList({
                   <td className="whitespace-nowrap px-2 py-2 text-right">{distanceText(r.distance, units)}</td>
                   <td className="whitespace-nowrap px-2 py-2 text-right">{formatDuration(r.moving)}</td>
                   <td className="whitespace-nowrap px-2 py-2 text-right">{formatMotion(r.avgSpeed, r.kind, units)}</td>
+                  {hasGap && (
+                    <td className="whitespace-nowrap px-2 py-2 text-right" title="Grade-adjusted pace">
+                      {r.gapPace !== undefined ? formatPace(r.gapPace, units) : <span className="text-muted">—</span>}
+                    </td>
+                  )}
                   <td className="whitespace-nowrap px-2 py-2 text-right">{r.avgHr ? Math.round(r.avgHr) : <span className="text-muted">—</span>}</td>
+                  {hasLoad && (
+                    <td className="whitespace-nowrap px-2 py-2 text-right" title={r.trimp !== undefined ? "Heart-rate training load (TRIMP)" : r.tss !== undefined ? "Training stress from power (TSS)" : undefined}>
+                      {activityLoad(r) !== undefined ? Math.round(activityLoad(r)!) : <span className="text-muted">—</span>}
+                    </td>
+                  )}
                   <td className="px-2 py-2">
                     <div className="flex flex-wrap gap-1">
                       {prs.map((p) => (

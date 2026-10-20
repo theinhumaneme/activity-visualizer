@@ -7,7 +7,7 @@ import { Recap } from "../components/library/Recap";
 import { useOpenActivity } from "../components/steps";
 import { Loading, Segmented } from "../components/ui";
 import { unitLabel, unitLength } from "../lib/format/format";
-import { groupsWithin, inPeriod, periodOptions } from "../lib/library/aggregate";
+import { groupsWithin, inPeriod, periodIncludesNow, periodOptions } from "../lib/library/aggregate";
 import { personalRecords, recordsByActivity } from "../lib/library/records";
 import { groupRoutes, relabelGroups } from "../lib/library/similarity";
 import type { SportKind } from "../lib/parse/types";
@@ -51,6 +51,7 @@ export function LibraryPage() {
   const clear = useLibrary((s) => s.clear);
   const restoring = useLibrary((s) => s.restoring);
   const notSaved = useLibrary((s) => s.notSaved);
+  const upgrading = useLibrary((s) => s.upgrading);
   const open = useLibrary((s) => s.open);
   const mainUnits = useStore((s) => s.settings?.units);
   const mainError = useStore((s) => s.error);
@@ -183,6 +184,13 @@ export function LibraryPage() {
         </p>
       )}
 
+      {upgrading && !loading && (
+        <p role="status" className="mt-4 text-sm text-muted">
+          Updating saved activities for the new stats: <span className="tabular">{upgrading.done.toLocaleString()}</span> of{" "}
+          <span className="tabular">{upgrading.total.toLocaleString()}</span> files…
+        </p>
+      )}
+
       {notSaved && !loading && (
         <p role="status" className="mt-4 rounded-lg bg-warning/15 px-3 py-2 text-sm text-ink">
           This browser wouldn't store more (its storage is full or turned off), so the last files you added are here for this visit only.
@@ -246,10 +254,10 @@ export function LibraryPage() {
               {tab === "heatmap" && <Heatmap records={shown} radius={radius} units={units} />}
               {tab === "race" && <Race key={`${kind}-${period}`} groups={groups} byId={byId} radius={radius} units={units} />}
             </Suspense>
-            {tab === "progress" && <Progress records={shown} kind={kind} units={units} />}
+            {tab === "progress" && <Progress records={shown} history={ofKind} throughToday={periodIncludesNow(period)} kind={kind} units={units} />}
             {tab === "list" && <ActivityList records={shown} prsById={prsAllTime} kind={kind} units={units} opening={opening} onOpen={openActivity} />}
           </div>
-          {tab === "list" && <p className="mt-2 text-xs text-muted">PR badges are all-time bests for each distance across your library.</p>}
+          {tab === "list" && <p className="mt-2 text-xs text-muted">PR badges are all-time bests for each distance across your library. GAP is pace adjusted for hills; load is heart-rate training load (TRIMP), or TSS from power.</p>}
         </>
       )}
     </div>
