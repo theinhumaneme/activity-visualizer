@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { analyze, defaultSettings } from "../analysis/analyze";
 import { haversine } from "../geo/geo";
-import { partAt, partStarts } from "../analysis/bridges";
+import { activeTimeAt, partAt, partStarts } from "../analysis/bridges";
 import { liveItems } from "../hud/hud";
 import { drawable } from "../map/route";
 import { parseActivityFile } from "../parse";
@@ -75,7 +75,9 @@ describe("combining activities", () => {
     expect(a.moving[k - 1]).toBe(0);
     expect(a.summary.moving).toBeCloseTo(m1.moving + m2.moving, -1);
     expect(a.summary.distance).toBeCloseTo(m1.distance + m2.distance, 0);
-    expect(a.summary.stoppedTime).toBeGreaterThan(7.5 * 3600);
+    // Total time is the time spent in the activities; the eight hours between them are left out.
+    expect(a.summary.elapsed).toBeCloseTo(m1.elapsed + m2.elapsed, 0);
+    expect(a.summary.stoppedTime).toBeCloseTo(m1.stoppedTime + m2.stoppedTime, -1);
   });
 
   it("draws no line across the hand-off and bridges it in the flyover", () => {
@@ -191,10 +193,18 @@ describe("each activity of a combined day", () => {
   it("counts live time and distance from its own start, unless the day runs through", () => {
     const at = k + 120;
     const value = (perPart: boolean, label: string) => liveItems(a, at, ["time", "distance"], null, perPart).find((x) => x.label === label)!.value;
+    const seconds = (text: string) => text.split(":").reduce((acc, x) => acc * 60 + Number(x), 0);
     expect(value(true, "DISTANCE")).toBe(((a.dist[at] - a.dist[k]) / 1000).toFixed(2));
     expect(value(false, "DISTANCE")).toBe((a.dist[at] / 1000).toFixed(2));
-    expect(Number(value(true, "TIME").split(":").pop())).toBe((a.t[at] - a.t[k]) % 60);
-    expect(value(false, "TIME").split(":").length).toBe(3);
+    expect(seconds(value(true, "TIME"))).toBe(a.t[at] - a.t[k]);
+    // The whole day's clock adds up the activities' own time, skipping the gap between them.
+    expect(seconds(value(false, "TIME"))).toBe(a.t[k - 1] + (a.t[at] - a.t[k]));
+  });
+
+  it("holds the whole day's clock across the gap", () => {
+    expect(activeTimeAt(a.t, [0, k], k - 0.5)).toBeCloseTo(a.t[k - 1], 6);
+    expect(activeTimeAt(a.t, [0, k], k)).toBeCloseTo(a.t[k - 1], 6);
+    expect(activeTimeAt(a.t, [0, k], a.n - 1)).toBeCloseTo(a.summary.elapsed, 6);
   });
 
   it("shows each sport's own pace or speed in a mixed day", () => {

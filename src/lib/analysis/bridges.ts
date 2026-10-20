@@ -68,6 +68,24 @@ export function partStarts(a: { activity: { parts?: readonly { startTime: number
   return out;
 }
 
+/**
+ * Time spent in activities up to (fractional) sample i: elapsed time with the gaps between a
+ * combined day's activities left out (the clock holds across a gap).
+ */
+export function activeTimeAt(t: ArrayLike<number>, starts: readonly number[], i: number): number {
+  const at = (f: number) => {
+    const k = Math.min(t.length - 1, Math.max(0, Math.floor(f)));
+    return k >= t.length - 1 ? t[t.length - 1] : t[k] + (f - k) * (t[k + 1] - t[k]);
+  };
+  let time = at(i);
+  for (const st of starts) {
+    if (st <= 0) continue;
+    if (i >= st) time -= t[st] - t[st - 1];
+    else if (i > st - 1) time -= at(i) - t[st - 1];
+  }
+  return time;
+}
+
 /** Which activity (index into `starts`) sample i belongs to. */
 export function partAt(starts: readonly number[], i: number): number {
   let k = 0;

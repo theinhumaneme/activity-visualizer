@@ -5,7 +5,7 @@
 // labels uppercase with +0.08em tracking; time compression and terrain exaggeration always
 // disclosed; on 9:16 the top 12% and bottom 18% stay clear of key content.
 
-import { partAt, partStarts } from "../analysis/bridges";
+import { activeTimeAt, partAt, partStarts } from "../analysis/bridges";
 import type { Analysis } from "../analysis/types";
 import { minetti } from "../analysis/gap";
 import { atIndex } from "../analysis/series";
@@ -90,8 +90,8 @@ export interface HudOptions {
   credit?: boolean;
   /**
    * A combined day's live stats and finish: "each" (default) starts the clock and distance over
-   * with every activity, in its own pace or speed; "day" runs them through the whole day. The
-   * end card always has the whole day's totals.
+   * with every activity, in its own pace or speed; "day" runs them through the whole day, with
+   * time counting only the time spent in the activities. The end card always has the day's totals.
    */
   dayStats?: DayStats;
 }
@@ -531,13 +531,15 @@ export function liveItems(a: Analysis, i: number, chosen: readonly LiveStat[] = 
   const k = Math.min(a.n - 1, Math.max(0, Math.round(i)));
   const parts = perPart ? a.activity.parts : undefined;
   const starts = parts ? partStarts(a) : null;
+  // A whole combined day counts time spent in its activities, not the gaps between them.
+  const dayStarts = !perPart && a.activity.parts ? partStarts(a) : null;
   const part = starts ? partAt(starts, i) : 0;
   const s0 = starts ? starts[part] : -1;
   const since = (ys: ArrayLike<number>) => atIndex(ys, i) - (s0 >= 0 ? ys[s0] : 0);
   const kind = parts ? parts[part].kind : a.activity.kind;
   const out: Item[] = [];
   for (const key of pickLive(a, chosen, weather)) {
-    if (key === "time") out.push({ label: "TIME", value: formatDuration(since(a.t)) });
+    if (key === "time") out.push({ label: "TIME", value: formatDuration(dayStarts ? activeTimeAt(a.t, dayStarts, i) : since(a.t)) });
     else if (key === "moving") out.push({ label: "MOVING", value: formatDuration(since(a.movingTime)) });
     else if (key === "distance") out.push({ label: "DISTANCE", value: (since(a.dist) / (u === "metric" ? 1000 : 1609.344)).toFixed(2), unit });
     else if (key === "motion") {

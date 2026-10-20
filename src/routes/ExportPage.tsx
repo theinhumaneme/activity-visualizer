@@ -283,7 +283,7 @@ export function ExportPage() {
                   </ControlRow>
                 )}
                 {kind === "video" && stats && a.activity.parts && (
-                  <ControlRow label="Combined day" hint={dayStats === "day" ? "Time and distance run through the whole day." : "Time and distance start over with each activity. The end card has the whole day's totals."}>
+                  <ControlRow label="Combined day" hint={dayStats === "day" ? "Distance runs through the day; time adds up the activities, leaving out the gaps between them." : "Time and distance start over with each activity. The end card has the whole day's totals."}>
                     <Segmented
                       size="sm"
                       label="Live stats for a combined day"

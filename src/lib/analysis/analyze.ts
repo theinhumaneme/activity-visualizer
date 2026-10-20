@@ -244,9 +244,13 @@ export function analyze(activity: Activity, settings: Settings, demAll: Float64A
     }
   }
 
+  // A combined day's total time is the time spent in its activities: the gaps between them are
+  // left out (they're stops for moving time, but not part of any activity).
+  const breaks = partBreaks(activity.parts, trimmed.offset, n);
+  const activeTime = elapsed - breaks.reduce((sum, b) => sum + t[b] - t[b - 1], 0);
   const summary: Summary = {
     distance,
-    elapsed,
+    elapsed: activeTime,
     moving: movingTotal,
     avgSpeed,
     maxSpeed,
@@ -273,7 +277,7 @@ export function analyze(activity: Activity, settings: Settings, demAll: Float64A
     paceCv,
     firstHalfPace: (mHalf / (distance / 2)) * 1000,
     secondHalfPace: ((movingTotal - mHalf) / (distance / 2)) * 1000,
-    stoppedTime: elapsed - movingTotal,
+    stoppedTime: activeTime - movingTotal,
   };
 
   const splits = computeSplits(unitLength(settings.units), t, dist, movingTime, hr, elev, cadence, profile.gap ? grade : null, moving);
@@ -290,7 +294,6 @@ export function analyze(activity: Activity, settings: Settings, demAll: Float64A
   const climbs = vam.climbs;
   summary.vam = vam.vam;
   if (hasHr && !activity.routeOnly) summary.hrRecovery = hrRecovery(t, hr, moving, movingTime, stops);
-  const breaks = partBreaks(activity.parts, trimmed.offset, n);
   const privacy = computePrivacy(samples, settings.privacyRadius, breaks);
 
   const analysis: Analysis = {

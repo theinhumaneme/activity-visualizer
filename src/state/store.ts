@@ -182,7 +182,7 @@ interface State {
   comparisons: boolean;
   /** "Made with Activity Visualizer" and the site's address on videos and posters. */
   credit: boolean;
-  /** A combined day's live stats: per activity (default) or through the whole day. The end card always has the day's totals. */
+  /** A combined day's live stats: per activity (default) or for the whole day (time spent in the activities, gaps left out). The end card always has the day's totals. */
   dayStats: DayStats;
   /** Chase camera distance (auto picks by sport). */
   cameraDistance: CameraDistance;
