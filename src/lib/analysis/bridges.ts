@@ -38,3 +38,39 @@ export function computeBridges(breaks: readonly number[], privacy: Privacy): Bri
 export function partBreaks(parts: readonly { startIndex: number }[] | undefined, offset: number, n: number): number[] {
   return (parts ?? []).map((p) => p.startIndex - offset).filter((b) => b > 0 && b < n);
 }
+
+const startsCache = new WeakMap<object, number[]>();
+
+/**
+ * Where each activity of a combined day starts among the analyzed samples (after the trim), by
+ * time; [0] for a single activity. An activity the trim cut away entirely shares its index with
+ * the next one.
+ */
+export function partStarts(a: { activity: { parts?: readonly { startTime: number }[] }; samples: readonly { time: number }[] }): number[] {
+  const parts = a.activity.parts;
+  if (!parts?.length) return [0];
+  const hit = startsCache.get(a.samples);
+  if (hit) return hit;
+  const s = a.samples;
+  const out = parts.map((p, k) => {
+    if (k === 0) return 0;
+    let lo = 0;
+    let hi = s.length - 1;
+    if (s[hi].time < p.startTime) return s.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (s[mid].time < p.startTime) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  });
+  startsCache.set(a.samples, out);
+  return out;
+}
+
+/** Which activity (index into `starts`) sample i belongs to. */
+export function partAt(starts: readonly number[], i: number): number {
+  let k = 0;
+  while (k + 1 < starts.length && starts[k + 1] <= i) k++;
+  return k;
+}

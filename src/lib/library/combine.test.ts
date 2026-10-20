@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { analyze, defaultSettings } from "../analysis/analyze";
 import { haversine } from "../geo/geo";
+import { partAt, partStarts } from "../analysis/bridges";
+import { liveItems } from "../hud/hud";
 import { drawable } from "../map/route";
 import { parseActivityFile } from "../parse";
 import type { Activity } from "../parse/types";
@@ -165,6 +167,45 @@ describe("flying a combined day", () => {
     }
     // No time-compression readout while the clock skips the break.
     expect(tl.frame((Ta + Tb) / 2).rate).toBe(0);
+  });
+});
+
+describe("each activity of a combined day", () => {
+  const a = analyze(day, defaultSettings(day, "metric", 200), null);
+  const tl = buildTimeline(a, { followSeconds: 30, width: 540, height: 960 });
+  const b = a.bridges[0];
+
+  it("knows where each activity starts", () => {
+    expect(partStarts(a)).toEqual([0, k]);
+    expect(partAt([0, k], k - 0.5)).toBe(0);
+    expect(partAt([0, k], k)).toBe(1);
+  });
+
+  it("gets a title card as it begins: the first as the chase starts, the next over the flight into it", () => {
+    expect(tl.frame(tl.marks.chase + 1).part).toEqual({ index: 0, alpha: 1 });
+    expect(tl.frame(tl.timeAtIndex(b.to) + 0.5).part).toEqual({ index: 1, alpha: 1 });
+    expect(tl.frame(1).part).toBeNull();
+    expect(tl.frame(tl.marks.finish).part).toBeNull();
+  });
+
+  it("counts live time and distance from its own start, unless the day runs through", () => {
+    const at = k + 120;
+    const value = (perPart: boolean, label: string) => liveItems(a, at, ["time", "distance"], null, perPart).find((x) => x.label === label)!.value;
+    expect(value(true, "DISTANCE")).toBe(((a.dist[at] - a.dist[k]) / 1000).toFixed(2));
+    expect(value(false, "DISTANCE")).toBe((a.dist[at] / 1000).toFixed(2));
+    expect(Number(value(true, "TIME").split(":").pop())).toBe((a.t[at] - a.t[k]) % 60);
+    expect(value(false, "TIME").split(":").length).toBe(3);
+  });
+
+  it("shows each sport's own pace or speed in a mixed day", () => {
+    const run = parse(loopGpx("Lunch Run", "running", -71.05, 42.34, DAY + 11 * 3600_000, { speed: 3 }), "Lunch_Run.gpx");
+    const mixed = combineActivities([run, afternoon]);
+    const m = analyze(mixed, defaultSettings(mixed, "metric", 0), null);
+    const label = (i: number, perPart: boolean) => liveItems(m, i, ["motion"], null, perPart)[0].label;
+    const second = partStarts(m)[1];
+    expect(label(100, true)).toBe("PACE");
+    expect(label(second + 100, true)).toBe("SPEED");
+    expect(label(100, false)).toBe("SPEED");
   });
 });
 

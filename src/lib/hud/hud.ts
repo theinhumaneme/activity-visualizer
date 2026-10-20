@@ -5,6 +5,7 @@
 // labels uppercase with +0.08em tracking; time compression and terrain exaggeration always
 // disclosed; on 9:16 the top 12% and bottom 18% stay clear of key content.
 
+import { partAt, partStarts } from "../analysis/bridges";
 import type { Analysis } from "../analysis/types";
 import { minetti } from "../analysis/gap";
 import { atIndex } from "../analysis/series";
@@ -31,7 +32,7 @@ import { RAMPS, zoneIndex } from "../map/route";
 import type { Look } from "../map/style";
 import type { FrameState } from "../playback/timeline";
 import { SPORTS } from "../sport";
-import { DEFAULT_END, DEFAULT_LIVE, type EndStat, type LiveStat, pickEnd, pickLive } from "./stats";
+import { type DayStats, DEFAULT_END, DEFAULT_LIVE, type EndStat, type LiveStat, pickEnd, pickLive } from "./stats";
 import { type Weather, compass, formatTemp, weatherAt, weatherSummary, weatherText } from "../weather";
 import { windAlong, windLabel } from "../wind";
 import { comparisonText, headlineComparison } from "../compare";
@@ -87,6 +88,12 @@ export interface HudOptions {
   comparison?: boolean;
   /** "Activity Visualizer" in the footer and "Made with …" plus the site's address on the end card (default on). */
   credit?: boolean;
+  /**
+   * A combined day's live stats and finish: "each" (default) starts the clock and distance over
+   * with every activity, in its own pace or speed; "day" runs them through the whole day. The
+   * end card always has the whole day's totals.
+   */
+  dayStats?: DayStats;
 }
 
 /** Where the app is served, for the end card's credit; nothing on a local dev server. */
@@ -143,6 +150,7 @@ export function drawHud(ctx: CanvasRenderingContext2D, W: number, H: number, a: 
   }
   if (o.stats && f.fx.hud > 0 && !a.privacy.empty) drawStats(ctx, W, H, s, a, f, o, P, portrait, pad, safeBottom);
   if (f.moment && f.fx.hud > 0 && o.highlights !== false) drawMoment(ctx, W, s, a, f, o, P);
+  if (f.part && a.activity.parts) drawPartCard(ctx, W, s, a, f.part, o, P, titleFont, safeTop, portrait);
   if (f.fx.finish > 0) drawFinish(ctx, W, s, a, f.fx.finish, o, P, titleFont, safeTop, portrait);
   if (f.shot === "chase" || f.shot === "reveal") drawDisclosure(ctx, W, s, f, o, P, pad, safeTop, portrait);
   if (o.endCard && f.fx.summary > 0) drawEndCard(ctx, W, H, s, a, f.fx.summary, o, P, titleFont, portrait, safeTop, safeBottom, false);
@@ -467,7 +475,7 @@ function drawStats(
   safeBottom: number,
 ) {
   const alpha = f.fx.hud;
-  const items = liveItems(a, f.statsIndex, o.liveStats, o.weather);
+  const items = liveItems(a, f.statsIndex, o.liveStats, o.weather, o.dayStats !== "day");
   const square = !portrait && W < H * 1.3;
   const cols = portrait || square ? 3 : items.length;
   const rows = Math.ceil(items.length / cols);
@@ -512,17 +520,26 @@ interface Item {
   dot?: string;
 }
 
-/** Live HUD values at a (10 Hz) marker index, for the chosen stats the activity has. */
-function liveItems(a: Analysis, i: number, chosen: readonly LiveStat[] = DEFAULT_LIVE, weather?: Weather | null): Item[] {
+/**
+ * Live HUD values at a (10 Hz) marker index, for the chosen stats the activity has. `perPart`:
+ * in a combined day, time and distance count from the start of the activity under way, and pace
+ * or speed follows that activity's sport.
+ */
+export function liveItems(a: Analysis, i: number, chosen: readonly LiveStat[] = DEFAULT_LIVE, weather?: Weather | null, perPart = false): Item[] {
   const u = a.settings.units;
-  const kind = a.activity.kind;
   const unit = unitLabel(u);
   const k = Math.min(a.n - 1, Math.max(0, Math.round(i)));
+  const parts = perPart ? a.activity.parts : undefined;
+  const starts = parts ? partStarts(a) : null;
+  const part = starts ? partAt(starts, i) : 0;
+  const s0 = starts ? starts[part] : -1;
+  const since = (ys: ArrayLike<number>) => atIndex(ys, i) - (s0 >= 0 ? ys[s0] : 0);
+  const kind = parts ? parts[part].kind : a.activity.kind;
   const out: Item[] = [];
   for (const key of pickLive(a, chosen, weather)) {
-    if (key === "time") out.push({ label: "TIME", value: formatDuration(atIndex(a.t, i)) });
-    else if (key === "moving") out.push({ label: "MOVING", value: formatDuration(atIndex(a.movingTime, i)) });
-    else if (key === "distance") out.push({ label: "DISTANCE", value: (atIndex(a.dist, i) / (u === "metric" ? 1000 : 1609.344)).toFixed(2), unit });
+    if (key === "time") out.push({ label: "TIME", value: formatDuration(since(a.t)) });
+    else if (key === "moving") out.push({ label: "MOVING", value: formatDuration(since(a.movingTime)) });
+    else if (key === "distance") out.push({ label: "DISTANCE", value: (since(a.dist) / (u === "metric" ? 1000 : 1609.344)).toFixed(2), unit });
     else if (key === "motion") {
       const v = atIndex(a.speedLive, i);
       const moving = a.moving[Math.min(a.n - 2, Math.floor(i))] === 1 && v > 0.5;
@@ -715,6 +732,40 @@ function drawMoment(ctx: CanvasRenderingContext2D, W: number, s: number, a: Anal
   ctx.restore();
 }
 
+/**
+ * A combined day's card for the activity that's beginning: which one of how many and when, then
+ * its name, where the FINISH card goes.
+ */
+function drawPartCard(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  s: number,
+  a: Analysis,
+  card: { index: number; alpha: number },
+  o: HudOptions,
+  P: Palette,
+  titleFont: string,
+  safeTop: number,
+  portrait: boolean,
+) {
+  const parts = a.activity.parts!;
+  const p = parts[card.index];
+  ctx.save();
+  textShadow(ctx, s, P);
+  ctx.globalAlpha = card.alpha;
+  ctx.textAlign = "center";
+  const y = safeTop + (portrait ? 120 : 110) * s - (1 - card.alpha) * 16 * s;
+  const sameDay = new Set(parts.map((q) => formatDate(q.startTime, a.activity.utcOffsetMin))).size === 1;
+  const when = sameDay ? formatClock(p.startTime, a.activity.utcOffsetMin) : `${formatDate(p.startTime, a.activity.utcOffsetMin)} · ${formatClock(p.startTime, a.activity.utcOffsetMin)}`;
+  spaced(ctx, `ACTIVITY ${card.index + 1} OF ${parts.length} · ${when.toUpperCase()}`, W / 2, y, 20 * s, o.accent, 700, "center");
+  const name = p.name.toUpperCase();
+  const size = fitSize(ctx, name, titleWeight(titleFont), 76 * s, 36 * s, W - 128 * s, titleFont) * 0.98;
+  ctx.fillStyle = P.hi;
+  ctx.font = `${titleWeight(titleFont)} ${size}px ${titleFont}`;
+  ctx.fillText(truncate(ctx, name, W - 128 * s), W / 2, y + 16 * s + size);
+  ctx.restore();
+}
+
 function drawFinish(ctx: CanvasRenderingContext2D, W: number, s: number, a: Analysis, alpha: number, o: HudOptions, P: Palette, titleFont: string, safeTop: number, portrait: boolean) {
   ctx.save();
   textShadow(ctx, s, P);
@@ -723,10 +774,13 @@ function drawFinish(ctx: CanvasRenderingContext2D, W: number, s: number, a: Anal
   const y = safeTop + (portrait ? 120 : 110) * s - (1 - alpha) * 16 * s;
   spaced(ctx, "FINISH", W / 2, y, 24 * s, o.accent, 700, "center");
   if (!a.activity.routeOnly) {
+    // With per-activity live stats, the finish is the last activity's (the end card has the day's).
+    const starts = a.activity.parts && o.dayStats !== "day" ? partStarts(a) : [0];
+    const s0 = starts[starts.length - 1];
     ctx.fillStyle = P.hi;
     ctx.font = `${titleWeight(titleFont)} ${88 * s}px ${titleFont}`;
-    tabular(ctx, formatDuration(a.summary.elapsed), W / 2, y + 92 * s, "center");
-    spaced(ctx, `${formatDuration(a.summary.moving)} MOVING`, W / 2, y + 128 * s, 17 * s, P.mid, 600, "center");
+    tabular(ctx, formatDuration(s0 ? a.t[a.n - 1] - a.t[s0] : a.summary.elapsed), W / 2, y + 92 * s, "center");
+    spaced(ctx, `${formatDuration(s0 ? a.movingTime[a.n - 1] - a.movingTime[s0] : a.summary.moving)} MOVING`, W / 2, y + 128 * s, 17 * s, P.mid, 600, "center");
     // Ghost race result, one line per ghost, by moving time.
     if (o.ghosts?.length) {
       ghostsAt(a, o.ghosts, a.n - 1).forEach(({ g, gap }, k) => {

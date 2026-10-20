@@ -9,7 +9,7 @@ import { ACCENT, type ColorMode, ROUTE_COLORS } from "../lib/map/route";
 import { parseInWorker } from "../lib/parse/client";
 import type { LookId } from "../lib/map/style";
 import type { CameraMode } from "../lib/playback/timeline";
-import { DEFAULT_END, DEFAULT_LIVE, type EndStat, type LiveStat } from "../lib/hud/stats";
+import { type DayStats, DEFAULT_END, DEFAULT_LIVE, type EndStat, type LiveStat } from "../lib/hud/stats";
 import type { CameraDistance } from "../lib/playback/lengths";
 import { type MapDetail, resolveDetail } from "../lib/map/detail";
 import type { Activity } from "../lib/parse/types";
@@ -58,11 +58,11 @@ function storedPrivacy(): number {
   return DEFAULT_PRIVACY_RADIUS;
 }
 
-function storedStats(): { liveStats: LiveStat[]; endStats: EndStat[]; highlights: boolean; landmarks: boolean; buildings: boolean; sunLighting: boolean; haze: Haze; globeIntro: boolean; comparisons: boolean; credit: boolean } {
+function storedStats(): { liveStats: LiveStat[]; endStats: EndStat[]; highlights: boolean; landmarks: boolean; buildings: boolean; sunLighting: boolean; haze: Haze; globeIntro: boolean; comparisons: boolean; credit: boolean; dayStats: DayStats } {
   // 3D buildings default to off where the device is Lite: extrusions are costly to draw.
   const buildingsDefault = resolveDetail(storedDetail()) !== "lite";
   try {
-    const v = JSON.parse(localStorage.getItem(STATS_KEY) ?? "null") as { liveStats?: unknown; endStats?: unknown; highlights?: unknown; landmarks?: unknown; buildings?: unknown; sunLighting?: unknown; haze?: unknown; globeIntro?: unknown; comparisons?: unknown; credit?: unknown } | null;
+    const v = JSON.parse(localStorage.getItem(STATS_KEY) ?? "null") as { liveStats?: unknown; endStats?: unknown; highlights?: unknown; landmarks?: unknown; buildings?: unknown; sunLighting?: unknown; haze?: unknown; globeIntro?: unknown; comparisons?: unknown; credit?: unknown; dayStats?: unknown } | null;
     if (v && Array.isArray(v.liveStats) && Array.isArray(v.endStats))
       return {
         liveStats: v.liveStats as LiveStat[],
@@ -75,11 +75,12 @@ function storedStats(): { liveStats: LiveStat[]; endStats: EndStat[]; highlights
         globeIntro: v.globeIntro === true,
         comparisons: v.comparisons !== false,
         credit: v.credit !== false,
+        dayStats: v.dayStats === "day" ? "day" : "each",
       };
   } catch {
     // Storage unavailable or corrupt.
   }
-  return { liveStats: [...DEFAULT_LIVE], endStats: [...DEFAULT_END], highlights: true, landmarks: true, buildings: buildingsDefault, sunLighting: true, haze: "auto", globeIntro: false, comparisons: true, credit: true };
+  return { liveStats: [...DEFAULT_LIVE], endStats: [...DEFAULT_END], highlights: true, landmarks: true, buildings: buildingsDefault, sunLighting: true, haze: "auto", globeIntro: false, comparisons: true, credit: true, dayStats: "each" };
 }
 
 function storedWeatherOn(): boolean {
@@ -181,6 +182,8 @@ interface State {
   comparisons: boolean;
   /** "Made with Activity Visualizer" and the site's address on videos and posters. */
   credit: boolean;
+  /** A combined day's live stats: per activity (default) or through the whole day. The end card always has the day's totals. */
+  dayStats: DayStats;
   /** Chase camera distance (auto picks by sport). */
   cameraDistance: CameraDistance;
   setCameraDistance(d: CameraDistance): void;
@@ -203,7 +206,7 @@ interface State {
   setXAxis(x: "distance" | "time"): void;
   setLook(l: LookId): void;
   setCameraMode(m: CameraMode | "free"): void;
-  setVideoStats(patch: { liveStats?: LiveStat[]; endStats?: EndStat[]; highlights?: boolean; landmarks?: boolean; buildings?: boolean; sunLighting?: boolean; haze?: Haze; globeIntro?: boolean; comparisons?: boolean; credit?: boolean }): void;
+  setVideoStats(patch: { liveStats?: LiveStat[]; endStats?: EndStat[]; highlights?: boolean; landmarks?: boolean; buildings?: boolean; sunLighting?: boolean; haze?: Haze; globeIntro?: boolean; comparisons?: boolean; credit?: boolean; dayStats?: DayStats }): void;
   reset(): void;
 }
 
@@ -553,7 +556,7 @@ export const useStore = create<State>((set, get) => {
     setVideoStats(patch) {
       set(patch);
       try {
-        localStorage.setItem(STATS_KEY, JSON.stringify({ liveStats: get().liveStats, endStats: get().endStats, highlights: get().highlights, landmarks: get().landmarks, buildings: get().buildings, sunLighting: get().sunLighting, haze: get().haze, globeIntro: get().globeIntro, comparisons: get().comparisons, credit: get().credit }));
+        localStorage.setItem(STATS_KEY, JSON.stringify({ liveStats: get().liveStats, endStats: get().endStats, highlights: get().highlights, landmarks: get().landmarks, buildings: get().buildings, sunLighting: get().sunLighting, haze: get().haze, globeIntro: get().globeIntro, comparisons: get().comparisons, credit: get().credit, dayStats: get().dayStats }));
       } catch {
         // Not critical.
       }

@@ -4,7 +4,7 @@ import type { VideoCodec } from "mediabunny";
 import type { Analysis } from "../analysis/types";
 import { type TerrainGrid, sampler } from "../geo/terrainGrid";
 import { drawHud, loadHudFonts } from "../hud/hud";
-import type { EndStat, LiveStat } from "../hud/stats";
+import type { DayStats, EndStat, LiveStat } from "../hud/stats";
 import { type ColorMode } from "../map/route";
 import { DETAIL, type DetailLevel, applyTerrainQuality } from "../map/detail";
 import { addBuildingLayer, addLandmarkLayers } from "../map/landmarks";
@@ -57,6 +57,8 @@ export interface ExportOptions {
   comparison?: boolean;
   /** The app's name and address on the frames (default on). */
   credit?: boolean;
+  /** A combined day's live stats: per activity (default) or through the whole day. */
+  dayStats?: DayStats;
   /** Haze over the distance ("auto": from the weather when it's on, else the look's own). */
   haze?: Haze;
   /** Multiplier on the chase camera distance. */
@@ -264,6 +266,7 @@ async function stage(a: Analysis, opts: ExportOptions, signal: AbortSignal): Pro
       endCard: opts.endCard,
       comparison: opts.comparison,
       credit: opts.credit,
+      dayStats: opts.dayStats,
       attribution,
       exaggeration: opts.exaggeration,
       project: (at) => {

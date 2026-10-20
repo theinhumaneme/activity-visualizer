@@ -9,7 +9,7 @@ import { formatClock, formatDate, formatDateTime, formatDuration } from "../lib/
 import type { ActivityPart } from "../lib/parse/types";
 import { sampler } from "../lib/geo/terrainGrid";
 import { drawHud, loadHudFonts } from "../lib/hud/hud";
-import { MAX_LIVE, liveOptions, withWeather, withoutWeather } from "../lib/hud/stats";
+import { type DayStats, MAX_LIVE, liveOptions, withWeather, withoutWeather } from "../lib/hud/stats";
 import { placePhotos } from "../lib/photos";
 import { formatTemp, weatherSummary, weatherText } from "../lib/weather";
 import { COLOR_MODES, modeAvailable } from "../lib/map/route";
@@ -86,6 +86,7 @@ export function FlyoverPage() {
   const globeIntro = useStore((s) => s.globeIntro);
   const comparisons = useStore((s) => s.comparisons);
   const credit = useStore((s) => s.credit);
+  const dayStats = useStore((s) => s.dayStats);
   const cameraDistance = useStore((s) => s.cameraDistance);
   const mapDetail = useStore((s) => s.mapDetail);
   const setMapDetail = useStore((s) => s.setMapDetail);
@@ -168,6 +169,7 @@ export function FlyoverPage() {
         photoPages: photoPagesRef.current,
         comparison: comparisons,
         credit,
+        dayStats,
         attribution: "",
         // Keep the stats clear of the map's own attribution control.
         bottomInset: 40 * dpr,
@@ -178,7 +180,7 @@ export function FlyoverPage() {
         },
       });
     },
-    [a, look, routeColor, exaggeration, liveStats, endStats, highlights, weather, ghosts, ghostsOn, placement, photosOn, comparisons, credit],
+    [a, look, routeColor, exaggeration, liveStats, endStats, highlights, weather, ghosts, ghostsOn, placement, photosOn, comparisons, credit, dayStats],
   );
 
   /**
@@ -617,6 +619,20 @@ export function FlyoverPage() {
           <ControlRow label="Live stats" hint={`Up to ${MAX_LIVE}.`}>
             <ChipSelect label="Live stats" value={liveStats} max={MAX_LIVE} onChange={(v) => setVideoStats({ liveStats: v })} options={liveOptions(a, weather)} />
           </ControlRow>
+          {parts && (
+            <ControlRow label="Combined day" hint={dayStats === "day" ? "Time and distance run through the whole day." : "Time and distance start over with each activity. The end card has the whole day's totals."}>
+              <Segmented
+                size="sm"
+                label="Live stats for a combined day"
+                value={dayStats}
+                onChange={(v) => setVideoStats({ dayStats: v })}
+                options={[
+                  { value: "each" as DayStats, label: "Each activity" },
+                  { value: "day" as DayStats, label: "Whole day" },
+                ]}
+              />
+            </ControlRow>
+          )}
           <ControlRow label="Opening" hint={reduced ? "Off while reduced motion is on." : globeIntro ? `Starts on the whole Earth and dives down to the start (+${GLOBE_SECONDS} s).` : undefined}>
             <Segmented
               size="sm"

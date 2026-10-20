@@ -12,6 +12,7 @@
 
 import type { Moment } from "../analysis/moments";
 import type { Analysis } from "../analysis/types";
+import { partStarts } from "../analysis/bridges";
 import { atIndex, indexAtDist, interpAt, movingAverage } from "../analysis/series";
 import { type Bounds, type LngLat, boundsCenter, boundsOf, fitZoom, haversine, toDeg, toRad } from "../geo/geo";
 import type { ElevationAt } from "../geo/terrainGrid";
@@ -73,6 +74,8 @@ export interface FrameState {
   /** Activity seconds per video second right now (the time compression, shown on screen). */
   rate: number;
   moment: { m: Moment; alpha: number } | null;
+  /** A combined day's title card for one of its activities ("Activity 2 of 2"), as it begins. */
+  part: { index: number; alpha: number } | null;
   /** Overlay cues, 0 → 1. */
   fx: {
     title: number;
@@ -440,6 +443,19 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
   const bridgeTimes = bridges.map((b, j) => ({ Ta: timeAtIndex(b.from), Tb: timeAtIndex(b.to), len: bridgeLen[j] }));
   /** 0 → 1 → 0 across each bridge, with `lead` seconds either side. */
   const bridgeWindow = (T: number, lead: number, Ta: number, Tb: number) => Math.min(smooth(ramp(T, Ta - lead, lead)), 1 - smooth(ramp(T, Tb, lead)));
+  // Each activity of a combined day gets a title card as it begins: the first as the chase starts,
+  // the others over the flight into them (or as the marker reaches them, with no bridge).
+  const starts = a.activity.parts ? partStarts(a) : [];
+  const partCards =
+    starts.length > 1
+      ? starts.map((st, k) => {
+          if (k === 0) return { a: Tc - 0.4, b: Tc + 2 };
+          const j = bridges.findIndex((b) => b.from < st && st <= b.to);
+          if (j >= 0) return { a: (bridgeTimes[j].Ta + bridgeTimes[j].Tb) / 2 - 0.2, b: bridgeTimes[j].Tb + 1.6 };
+          const Tk = timeAtIndex(st);
+          return { a: Tk - 0.3, b: Tk + 1.8 };
+        })
+      : [];
   /** The marker hides while the camera flies across a bridge. */
   const bridgeHide = (T: number) => bridgeTimes.reduce((m, { Ta, Tb }) => Math.max(m, bridgeWindow(T, 0.25, Ta, Tb)), 0);
 
@@ -704,6 +720,11 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
     const T = Math.min(Math.max(T0, 0), duration);
     const index = indexAtT(T);
     const shot: Shot = T < Tr ? "establish" : T < Tc ? "reveal" : T < Tf ? "chase" : T < Tp ? "finish" : T < Te ? "pullback" : "end";
+    let part: FrameState["part"] = null;
+    partCards.forEach((c, index) => {
+      const alpha = window_(T, c.a, 0.45, c.b, 0.4);
+      if (alpha > 0 && (!part || alpha > part.alpha)) part = { index, alpha };
+    });
     let moment: FrameState["moment"] = null;
     for (const { m, T: Tk, hw } of momentTimes) {
       const alpha = window_(T, Tk - hw - 0.25, 0.45, Tk + hw, 0.32);
@@ -720,6 +741,7 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
       // No time compression to show while flying across a bridge (the clock skips the break).
       rate: T > Tc && T < Tf && !bridgeTimes.some(({ Ta, Tb }) => T > Ta - 0.5 && T < Tb + 0.5) ? Math.abs(activityAt(T + 0.5) - activityAt(T - 0.5)) : 0,
       moment,
+      part,
       fx: {
         title: window_(T, 0.2, 0.6, INTRO - 0.55, 0.4),
         marker: easeOutExpo(ramp(T, Tr, 0.5)) * (bridges.length ? 1 - bridgeHide(T) : 1),

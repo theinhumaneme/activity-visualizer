@@ -3,7 +3,7 @@ import { ColorModePicker } from "../components/ColorModePicker";
 import { PhotoPicker } from "../components/PhotoPicker";
 import { Card, Check, ChipSelect, ControlRow, Failure, GroupHeading, NextStep, Page, Segmented, Spinner } from "../components/ui";
 import { type Aspect, type ExportProgress, type ExportResult, type Resolution, exportDuration, exportSize, renderPoster, renderVideo, videoBitrate } from "../lib/export/render";
-import { MAX_END, MAX_LIVE, endOptions, liveOptions, withWeather, withoutWeather } from "../lib/hud/stats";
+import { type DayStats, MAX_END, MAX_LIVE, endOptions, liveOptions, withWeather, withoutWeather } from "../lib/hud/stats";
 import { drawExportPreview } from "../lib/export/preview";
 import { formatDuration } from "../lib/format/format";
 import { loadHudFonts } from "../lib/hud/hud";
@@ -64,6 +64,7 @@ export function ExportPage() {
   const globeIntro = useStore((s) => s.globeIntro);
   const comparisons = useStore((s) => s.comparisons);
   const credit = useStore((s) => s.credit);
+  const dayStats = useStore((s) => s.dayStats);
   const ghosts = useStore((s) => s.ghosts);
   const photos = useStore((s) => s.photos);
   const photosOn = useStore((s) => s.photosOn);
@@ -116,10 +117,11 @@ export function ExportPage() {
       colorMode,
       stats: kind === "video" && stats,
       liveStats,
+      dayStats,
       exaggeration,
       followSeconds: length,
     });
-  }, [a, aspect, previewW, previewH, lookId, routeColor, colorMode, stats, liveStats, kind, exaggeration, length, rendering, result, fontsReady]);
+  }, [a, aspect, previewW, previewH, lookId, routeColor, colorMode, stats, liveStats, dayStats, kind, exaggeration, length, rendering, result, fontsReady]);
 
   async function start() {
     setError(null);
@@ -157,6 +159,7 @@ export function ExportPage() {
       endCard,
       comparison: comparisons,
       credit,
+      dayStats,
       fps,
       terrain,
     };
@@ -277,6 +280,20 @@ export function ExportPage() {
                 {kind === "video" && stats && (
                   <ControlRow label="During the video" hint={`Up to ${MAX_LIVE}.`}>
                     <ChipSelect label="Live stats" value={liveStats} max={MAX_LIVE} onChange={(v) => setVideoStats({ liveStats: v })} options={liveOptions(a, weather)} />
+                  </ControlRow>
+                )}
+                {kind === "video" && stats && a.activity.parts && (
+                  <ControlRow label="Combined day" hint={dayStats === "day" ? "Time and distance run through the whole day." : "Time and distance start over with each activity. The end card has the whole day's totals."}>
+                    <Segmented
+                      size="sm"
+                      label="Live stats for a combined day"
+                      value={dayStats}
+                      onChange={(v) => setVideoStats({ dayStats: v })}
+                      options={[
+                        { value: "each" as DayStats, label: "Each activity" },
+                        { value: "day" as DayStats, label: "Whole day" },
+                      ]}
+                    />
                   </ControlRow>
                 )}
                 {(kind === "poster" || endCard) && (

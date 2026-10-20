@@ -5,7 +5,7 @@
 import type { Analysis } from "../analysis/types";
 import { mercX, mercY } from "../geo/geo";
 import { drawPreviewHud } from "../hud/hud";
-import type { LiveStat } from "../hud/stats";
+import type { DayStats, LiveStat } from "../hud/stats";
 import { ACCENT, type ColorMode, buildChunks, drawable, sampleColors } from "../map/route";
 import { LOOKS, type LookId } from "../map/style";
 import type { FrameState } from "../playback/timeline";
@@ -47,6 +47,7 @@ export interface PreviewOptions {
   colorMode: ColorMode;
   stats: boolean;
   liveStats?: readonly LiveStat[];
+  dayStats?: DayStats;
   exaggeration: number;
   followSeconds: number;
 }
@@ -154,6 +155,7 @@ export function drawExportPreview(ctx: CanvasRenderingContext2D, W: number, H: n
     statsIndex: head,
     rate: a.activity.routeOnly ? 1 : a.summary.elapsed / Math.max(4, o.followSeconds),
     moment: null,
+    part: null,
     fx: { title: 1, marker: 1, start: 0, hud: 1, finish: 0, burst: 0, summary: 0, pulse: 0 },
   };
   drawPreviewHud(ctx, W, H, a, frame, {
@@ -161,6 +163,7 @@ export function drawExportPreview(ctx: CanvasRenderingContext2D, W: number, H: n
     accent: solid,
     stats: o.stats,
     liveStats: o.liveStats,
+    dayStats: o.dayStats,
     endCard: false,
     attribution: look.attribution(),
     exaggeration: o.exaggeration,
