@@ -585,6 +585,68 @@ details[open] > .disclosure-body {
   }
 }
 
+/*
+ * Homepage scenes that act out what they show, once (see useReveal). Drawn by default; only an
+ * armed scene starts undrawn. `--rv-delay` sequences the parts, `--rv-dur` sets their pace.
+ *   rv-draw   a line traces itself (needs pathLength="1")
+ *   rv-wipe   an area or dashed line uncovers left to right
+ *   rv-grow   a bar rises from its base (rv-grow-down hangs from its top; rv-grow-x fills rightward)
+ *   rv-rise   a label settles into place
+ *   rv-pop    a marker lands
+ */
+.rv-draw {
+  stroke-dasharray: 1;
+}
+[data-reveal] :is(.rv-draw, .rv-wipe, .rv-grow, .rv-grow-down, .rv-grow-x, .rv-rise, .rv-pop) {
+  transition-duration: var(--rv-dur, 1.2s);
+  transition-timing-function: var(--ease-out-expo);
+  transition-delay: var(--rv-delay, 0s);
+}
+[data-reveal] .rv-draw {
+  transition-property: stroke-dashoffset;
+}
+[data-reveal] .rv-wipe {
+  transition-property: clip-path;
+}
+[data-reveal] :is(.rv-grow, .rv-grow-down, .rv-grow-x) {
+  transform-box: fill-box;
+  transition-property: transform;
+}
+.rv-grow {
+  transform-origin: 50% 100%;
+}
+.rv-grow-down {
+  transform-origin: 50% 0;
+}
+.rv-grow-x {
+  transform-origin: 0 50%;
+}
+[data-reveal] :is(.rv-rise, .rv-pop) {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition-property: opacity, transform;
+}
+[data-reveal="armed"] .rv-draw {
+  stroke-dashoffset: 1;
+}
+[data-reveal="armed"] .rv-wipe {
+  clip-path: inset(0 100% 0 0);
+}
+[data-reveal="armed"] :is(.rv-grow, .rv-grow-down) {
+  transform: scaleY(0);
+}
+[data-reveal="armed"] .rv-grow-x {
+  transform: scaleX(0);
+}
+[data-reveal="armed"] .rv-rise {
+  opacity: 0;
+  transform: translateY(6px);
+}
+[data-reveal="armed"] .rv-pop {
+  opacity: 0;
+  transform: scale(0.4);
+}
+
 /* Theme switches cross-fade (where view transitions exist). */
 ::view-transition-old(root),
 ::view-transition-new(root) {

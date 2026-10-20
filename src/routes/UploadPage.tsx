@@ -1,19 +1,85 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { FEATURE_ART } from "../components/FeatureArt";
+import { FITNESS_NOW, FitnessArt, METRIC_ART } from "../components/MetricArt";
+import { useReveal } from "../components/reveal";
 import { SamplePreview } from "../components/SamplePreview";
 import { useOpenActivity } from "../components/steps";
 import { ErrorNote, Spinner, stagger } from "../components/ui";
 import { droppedFiles } from "../lib/library/files";
+import { formWord } from "../lib/library/load";
 import { useLibrary } from "../state/library";
 import { useStore } from "../state/store";
 
 const CAPABILITIES: { title: string; text: string; art: keyof typeof FEATURE_ART }[] = [
   { title: "Check your data", text: "Gaps, GPS jumps and broken altitude found and fixed before any charts.", art: "check" },
-  { title: "Analyze every stretch", text: "Splits, pace, heart-rate and power zones, best efforts and climbs, linked to the map.", art: "analyze" },
+  { title: "Analyze every stretch", text: "Splits, pace and GAP, heart-rate and power zones, best efforts and every climb, linked to the map.", art: "analyze" },
   { title: "Fly over in 3D", text: "Your route over high-resolution terrain, lit by the real sun, with your photos along the way.", art: "fly" },
   { title: "Export to share", text: "A video up to 4K or a poster, made on your device and sent straight to your apps.", art: "export" },
 ];
+
+/** The training numbers, each with a scene that acts it out. */
+const TRAINING: { title: string; text: string; art: keyof typeof METRIC_ART }[] = [
+  { title: "Hills, measured", text: "Grade-adjusted pace, VAM on every climb, and the steepest 100 m and kilometer.", art: "hills" },
+  { title: "Drift and recovery", text: "How far you go per heartbeat as the run wears on, and how fast your heart settles once you stop.", art: "heart" },
+  { title: "Power per kilo", text: "W′ balance shows how close you came to cracking. Add your weight for watts per kilo.", art: "power" },
+  { title: "Races and streaks", text: "5K to marathon predicted from your best efforts, plus your longest streak and Eddington number.", art: "races" },
+];
+
+/** A box whose scene plays once as it scrolls into view. */
+function Scene({ className = "", children }: { className?: string; children: ReactNode }) {
+  const ref = useReveal<HTMLDivElement>();
+  return (
+    <div ref={ref} className={className}>
+      {children}
+    </div>
+  );
+}
+
+/** Fitness and form, the section's lead: the chart draws across twelve weeks, then today's numbers settle in. */
+function FitnessPanel() {
+  const ref = useReveal<HTMLDivElement>(0.4);
+  const now = FITNESS_NOW;
+  const readout = [
+    { label: "Fitness", value: Math.round(now.fitness), swatch: "bg-series-pace" },
+    { label: "Fatigue", value: Math.round(now.fatigue), swatch: "bg-series-hr" },
+  ];
+  return (
+    <div
+      ref={ref}
+      className="mt-6 grid items-center gap-x-10 gap-y-5 rounded-card border border-grid bg-surface p-5 sm:p-7 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]"
+    >
+      <div className="aspect-[600/220] min-w-0">
+        <FitnessArt />
+      </div>
+      <div className="min-w-0">
+        <h3 className="text-lg font-semibold">Fitness, fatigue and form</h3>
+        <p className="mt-1.5 text-[15px] leading-relaxed text-ink-2">
+          Every activity in your library feeds a 42-day fitness curve and a 7-day fatigue curve. Form is the gap between them: when to push, and when
+          you're fresh enough to race.
+        </p>
+        <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+          {readout.map((r, k) => (
+            <div key={r.label} className="rv-rise" style={{ "--rv-delay": `${1.55 + k * 0.08}s`, "--rv-dur": "0.5s" } as React.CSSProperties}>
+              <dt className="flex items-center gap-1.5 text-ink-2">
+                <span aria-hidden className={`h-0.5 w-3.5 rounded-full ${r.swatch}`} />
+                {r.label}
+              </dt>
+              <dd className="text-2xl font-semibold tabular">{r.value}</dd>
+            </div>
+          ))}
+          <div className="rv-rise" style={{ "--rv-delay": "1.75s", "--rv-dur": "0.5s" } as React.CSSProperties}>
+            <dt className="text-ink-2">Form on race day</dt>
+            <dd className="text-2xl font-semibold tabular">
+              {now.form >= 0 ? "+" : "−"}
+              {Math.abs(Math.round(now.form))} <span className="text-base font-medium text-good">{formWord(now.form, now.fitness)}</span>
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+  );
+}
 
 type Icon = "terrain" | "camera" | "chart" | "film" | "library" | "phone";
 
@@ -44,11 +110,11 @@ const FEATURES: { icon: Icon; title: string; items: string[] }[] = [
     icon: "chart",
     title: "Analysis that goes deep",
     items: [
-      "Cycling power: normalized power, training stress, zones and power curve",
-      "Heart-rate zones, decoupling and efficiency",
+      "Cycling power: training stress, zones, power curve, W′ balance and watts per kilo",
+      "Heart-rate zones, cardiac drift, efficiency and recovery after you stop",
       "Reps and recoveries detected in interval sessions",
       "Headwind and tailwind along the route",
-      "Grade-adjusted pace and every climb",
+      "Grade-adjusted pace, VAM on every climb and the steepest stretches",
     ],
   },
   {
@@ -56,7 +122,7 @@ const FEATURES: { icon: Icon; title: string; items: string[] }[] = [
     title: "Videos made to share",
     items: [
       "720p, 1080p or 4K; story, feed, square, landscape or cinema",
-      "From 15 seconds to 5 minutes, with the stats you choose",
+      "From 15 seconds to 5 minutes, with the stats you choose, grade-adjusted pace and climbing VAM included",
       "Chase, drone, orbit and more camera moves",
       "Share to your apps in one tap, or save a poster",
     ],
@@ -67,7 +133,8 @@ const FEATURES: { icon: Icon; title: string; items: string[] }[] = [
     items: [
       "Drop a whole Strava export: hundreds of files at once",
       "A heatmap of everywhere you've been",
-      "Progress, records and a yearly recap",
+      "Fitness, fatigue and form, and weekly time in each heart-rate zone",
+      "Race predictions, streaks, your Eddington number, records and a yearly recap",
       "Kept in this browser for your next visit",
     ],
   },
@@ -333,9 +400,9 @@ export function UploadPage() {
               const Art = FEATURE_ART[c.art];
               return (
                 <li key={c.title} className="min-w-0">
-                  <div className="aspect-[5/3] overflow-hidden rounded-card border border-grid bg-surface-2/60">
+                  <Scene className="aspect-[5/3] overflow-hidden rounded-card border border-grid bg-surface-2/60">
                     <Art />
-                  </div>
+                  </Scene>
                   <p className="mt-3.5 text-label font-semibold text-accent-ink tabular">0{i + 1}</p>
                   <h3 className="mt-0.5 font-semibold">{c.title}</h3>
                   <p className="mt-1 text-[15px] leading-relaxed text-ink-2">{c.text}</p>
@@ -343,6 +410,30 @@ export function UploadPage() {
               );
             })}
           </ol>
+        </section>
+
+        <section aria-labelledby="training" className="mt-16 sm:mt-20">
+          <h2 id="training" className="text-section font-semibold tracking-[-0.01em]">
+            Read your training
+          </h2>
+          <p className="mt-1.5 max-w-2xl text-[15px] leading-relaxed text-ink-2">
+            Past pace and heart rate: how fit and how fresh you are, what the hills were worth, and what you could race.
+          </p>
+          <FitnessPanel />
+          <ul className="mt-6 grid gap-x-6 gap-y-8 sm:grid-cols-2 lg:grid-cols-4">
+            {TRAINING.map((c) => {
+              const Art = METRIC_ART[c.art];
+              return (
+                <li key={c.title} className="min-w-0">
+                  <Scene className="aspect-[5/3] overflow-hidden rounded-card border border-grid bg-surface-2/60">
+                    <Art />
+                  </Scene>
+                  <h3 className="mt-3.5 font-semibold">{c.title}</h3>
+                  <p className="mt-1 text-[15px] leading-relaxed text-ink-2">{c.text}</p>
+                </li>
+              );
+            })}
+          </ul>
         </section>
 
         <section aria-labelledby="everything" className="mt-16 sm:mt-20">

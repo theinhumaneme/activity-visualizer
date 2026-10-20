@@ -124,6 +124,8 @@ function chip(ctx: CanvasRenderingContext2D, text: string, right: number, midY: 
   ctx.lineWidth = dpr;
   ctx.stroke();
   ctx.fillStyle = ink;
+  // Set both: the canvas keeps whatever alignment the last drawing used.
+  ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText(text, x + padX, midY + 0.5 * dpr);
 }
@@ -333,8 +335,15 @@ export function Chart({
             over?.(u, ctx);
             if (refLines?.length) {
               ctx.font = `600 ${11.5 * dpr}px ${CHART_FONT}`;
-              for (const r of refLines) {
-                const yy = Math.round(u.valToPos(r.value, "y", true)) + 0.5;
+              // Chips for lines close together are pushed apart (top to bottom) so their labels never
+              // overlap; each line itself stays at its value.
+              const lines = refLines.map((r) => ({ r, yy: Math.round(u.valToPos(r.value, "y", true)) + 0.5 })).sort((a, b) => a.yy - b.yy);
+              const gapY = 20 * dpr;
+              const chipY = lines.map((l) => l.yy);
+              for (let k = 1; k < chipY.length; k++) chipY[k] = Math.max(chipY[k], chipY[k - 1] + gapY);
+              const overflow = chipY.length ? chipY[chipY.length - 1] - (top + h - 10 * dpr) : 0;
+              if (overflow > 0) for (let k = 0; k < chipY.length; k++) chipY[k] -= overflow;
+              for (const [k, { r, yy }] of lines.entries()) {
                 ctx.strokeStyle = withAlpha(INK2, 0.7);
                 ctx.lineWidth = dpr;
                 ctx.setLineDash([2 * dpr, 4 * dpr]);
@@ -344,7 +353,7 @@ export function Chart({
                 ctx.stroke();
                 ctx.setLineDash([]);
                 // The value sits in a chip at the right end of its line, clear of the y-axis labels.
-                chip(ctx, r.label, left + width - 4 * dpr, yy, SURFACE, cssVar("--line"), INK, dpr);
+                chip(ctx, r.label, left + width - 4 * dpr, chipY[k], SURFACE, cssVar("--line"), INK, dpr);
               }
             }
             ctx.restore();
