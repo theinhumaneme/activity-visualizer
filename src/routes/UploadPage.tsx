@@ -132,6 +132,7 @@ const FEATURES: { icon: Icon; title: string; items: string[] }[] = [
     title: "A library of everything",
     items: [
       "Drop a whole Strava export: hundreds of files at once",
+      "Fly a whole day as one video, or any activities you pick, each with its own title card",
       "A heatmap of everywhere you've been",
       "Fitness, fatigue and form, and weekly time in each heart-rate zone",
       "Race predictions, streaks, your Eddington number, records and a yearly recap",
