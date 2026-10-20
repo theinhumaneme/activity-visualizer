@@ -734,6 +734,22 @@ function drawMoment(ctx: CanvasRenderingContext2D, W: number, s: number, a: Anal
   ctx.restore();
 }
 
+const eyebrowCache = new WeakMap<object, string[]>();
+/** "ACTIVITY 2 OF 2 · 3:21 PM" for each activity (with the date when they span days), worked out once. */
+function partEyebrows(a: Analysis): string[] {
+  const parts = a.activity.parts!;
+  const hit = eyebrowCache.get(parts);
+  if (hit) return hit;
+  const off = a.activity.utcOffsetMin;
+  const sameDay = new Set(parts.map((q) => formatDate(q.startTime, off))).size === 1;
+  const out = parts.map((p, k) => {
+    const when = sameDay ? formatClock(p.startTime, off) : `${formatDate(p.startTime, off)} · ${formatClock(p.startTime, off)}`;
+    return `ACTIVITY ${k + 1} OF ${parts.length} · ${when.toUpperCase()}`;
+  });
+  eyebrowCache.set(parts, out);
+  return out;
+}
+
 /**
  * A combined day's card for the activity that's beginning: which one of how many and when, then
  * its name, where the FINISH card goes.
@@ -757,9 +773,7 @@ function drawPartCard(
   ctx.globalAlpha = card.alpha;
   ctx.textAlign = "center";
   const y = safeTop + (portrait ? 120 : 110) * s - (1 - card.alpha) * 16 * s;
-  const sameDay = new Set(parts.map((q) => formatDate(q.startTime, a.activity.utcOffsetMin))).size === 1;
-  const when = sameDay ? formatClock(p.startTime, a.activity.utcOffsetMin) : `${formatDate(p.startTime, a.activity.utcOffsetMin)} · ${formatClock(p.startTime, a.activity.utcOffsetMin)}`;
-  spaced(ctx, `ACTIVITY ${card.index + 1} OF ${parts.length} · ${when.toUpperCase()}`, W / 2, y, 20 * s, o.accent, 700, "center");
+  spaced(ctx, partEyebrows(a)[card.index], W / 2, y, 20 * s, o.accent, 700, "center");
   const name = p.name.toUpperCase();
   const size = fitSize(ctx, name, titleWeight(titleFont), 76 * s, 36 * s, W - 128 * s, titleFont) * 0.98;
   ctx.fillStyle = P.hi;

@@ -24,10 +24,25 @@ export function computePrivacy(samples: Sample[], radius: number, breaks: readon
   const n = samples.length;
   const visible = new Uint8Array(n).fill(1);
   if (radius <= 0 || n < 2) return { radius: 0, visible, from: 0, to: n - 1, empty: false };
-  const centers = [0, n - 1, ...breaks.flatMap((b) => (b > 0 && b < n ? [b - 1, b] : []))].map((i) => samples[i]);
+  const s0 = samples[0];
+  const s1 = samples[n - 1];
+  // A combined day's inner finishes and starts (none for a single activity). A day can have dozens:
+  // a box around each rules most points out before the exact distance.
+  const inner = breaks.flatMap((b) => (b > 0 && b < n ? [samples[b - 1], samples[b]] : []));
+  const m = inner.length;
+  const cLat = Float64Array.from(inner, (c) => c.lat);
+  const cLon = Float64Array.from(inner, (c) => c.lon);
+  const dLat = (radius / 110_540) * 1.01;
+  const dLon = Float64Array.from(inner, (c) => dLat / Math.max(0.01, Math.cos((c.lat * Math.PI) / 180)));
+  const nearInner = (lat: number, lon: number) => {
+    for (let k = 0; k < m; k++) {
+      if (Math.abs(lat - cLat[k]) < dLat && Math.abs(lon - cLon[k]) < dLon[k] && haversine(cLat[k], cLon[k], lat, lon) < radius) return true;
+    }
+    return false;
+  };
   for (let i = 0; i < n; i++) {
     const p = samples[i];
-    if (centers.some((c) => haversine(c.lat, c.lon, p.lat, p.lon) < radius)) visible[i] = 0;
+    if (haversine(s0.lat, s0.lon, p.lat, p.lon) < radius || haversine(s1.lat, s1.lon, p.lat, p.lon) < radius || (m > 0 && nearInner(p.lat, p.lon))) visible[i] = 0;
   }
   let from = visible.indexOf(1);
   let to = visible.lastIndexOf(1);

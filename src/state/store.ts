@@ -13,7 +13,6 @@ import { type DayStats, DEFAULT_END, DEFAULT_LIVE, type EndStat, type LiveStat }
 import type { CameraDistance } from "../lib/playback/lengths";
 import { type MapDetail, resolveDetail } from "../lib/map/detail";
 import type { Activity } from "../lib/parse/types";
-import { combineActivities } from "../lib/library/combine";
 import { boundsOf } from "../lib/geo/geo";
 import { type Weather, fetchWeather } from "../lib/weather";
 import type { GhostRunner } from "../lib/playback/ghosts";
@@ -424,7 +423,8 @@ export const useStore = create<State>((set, get) => {
       for (const p of get().photos) p.bitmap.close();
       set({ loading: true, error: null, ghosts: null, photos: [] });
       try {
-        const parsed = await Promise.all(sources.map((src) => parseInWorker(src.text, src.fileName)));
+        // Loaded on demand: only combined days need it, and this store is in the first download.
+        const [{ combineActivities }, ...parsed] = await Promise.all([import("../lib/library/combine"), ...sources.map((src) => parseInWorker(src.text, src.fileName))]);
         const combined = combineActivities(parsed.map((acts, k) => acts[sources[k].index] ?? acts[0]));
         set({ fileName: combined.name, activities: [combined] });
         await selectActivity(combined);
