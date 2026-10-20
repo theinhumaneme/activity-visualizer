@@ -4,11 +4,11 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { ColorModePicker } from "../components/ColorModePicker";
 import { PhotoPicker } from "../components/PhotoPicker";
 import type { FlyoverArrival } from "../components/steps";
-import { ControlRow, Failure, Loading, NextStep, Page, Segmented } from "../components/ui";
+import { ChipSelect, ControlRow, Failure, Loading, NextStep, Page, Segmented } from "../components/ui";
 import { formatDuration } from "../lib/format/format";
 import { sampler } from "../lib/geo/terrainGrid";
 import { drawHud, loadHudFonts } from "../lib/hud/hud";
-import { withWeather, withoutWeather } from "../lib/hud/stats";
+import { MAX_LIVE, liveOptions, withWeather, withoutWeather } from "../lib/hud/stats";
 import { placePhotos } from "../lib/photos";
 import { formatTemp, weatherSummary, weatherText } from "../lib/weather";
 import { COLOR_MODES, modeAvailable } from "../lib/map/route";
@@ -610,6 +610,9 @@ export function FlyoverPage() {
               onChange={(v) => setLength(Number(v))}
               options={CHASE_LENGTHS.map((l) => ({ value: String(l), label: lengthLabel(l) }))}
             />
+          </ControlRow>
+          <ControlRow label="Live stats" hint={`Up to ${MAX_LIVE}.`}>
+            <ChipSelect label="Live stats" value={liveStats} max={MAX_LIVE} onChange={(v) => setVideoStats({ liveStats: v })} options={liveOptions(a, weather)} />
           </ControlRow>
           <ControlRow label="Opening" hint={reduced ? "Off while reduced motion is on." : globeIntro ? `Starts on the whole Earth and dives down to the start (+${GLOBE_SECONDS} s).` : undefined}>
             <Segmented

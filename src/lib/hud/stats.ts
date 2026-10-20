@@ -5,8 +5,8 @@ import type { Analysis } from "../analysis/types";
 import { motionLabel, usesPace } from "../format/format";
 import type { Weather } from "../weather";
 
-export type LiveStat = "time" | "moving" | "distance" | "motion" | "hr" | "elev" | "grade" | "cadence" | "power" | "temp" | "wind";
-export type EndStat = "distance" | "total" | "moving" | "stopped" | "avg" | "best" | "gain" | "loss" | "high" | "avgHr" | "maxHr" | "cadence" | "power" | "np" | "work" | "tss" | "calories" | "weather" | "wind";
+export type LiveStat = "time" | "moving" | "distance" | "motion" | "gap" | "hr" | "elev" | "grade" | "cadence" | "power" | "temp" | "wind";
+export type EndStat = "distance" | "total" | "moving" | "stopped" | "avg" | "gap" | "best" | "gain" | "loss" | "high" | "avgHr" | "maxHr" | "cadence" | "power" | "np" | "work" | "tss" | "calories" | "weather" | "wind";
 
 export const DEFAULT_LIVE: LiveStat[] = ["time", "distance", "motion", "hr", "elev", "grade"];
 export const DEFAULT_END: EndStat[] = ["distance", "total", "avg", "gain", "avgHr"];
@@ -25,6 +25,7 @@ const LIVE: { key: LiveStat; label: (a: Analysis) => string; has: Has }[] = [
   { key: "moving", label: () => "Moving time", has: timed },
   { key: "distance", label: () => "Distance", has: () => true },
   { key: "motion", label: (a) => motionLabel(a.activity.kind), has: timed },
+  { key: "gap", label: () => "Grade-adjusted pace", has: (a) => timed(a) && !!a.gap },
   { key: "hr", label: () => "Heart rate", has: (a) => a.zones.length > 0 },
   { key: "elev", label: () => "Elevation", has: (a) => !!a.elev },
   { key: "grade", label: () => "Grade", has: (a) => !!a.grade },
@@ -40,6 +41,7 @@ const END: { key: EndStat; label: (a: Analysis) => string; has: Has }[] = [
   { key: "moving", label: () => "Moving time", has: timed },
   { key: "stopped", label: () => "Stopped time", has: (a) => timed(a) && a.summary.stoppedTime >= 1 },
   { key: "avg", label: (a) => `Avg ${motionLabel(a.activity.kind).toLowerCase()}`, has: timed },
+  { key: "gap", label: () => "Avg grade-adjusted pace", has: (a) => timed(a) && a.summary.gapPace !== undefined },
   { key: "best", label: (a) => (pace(a) ? "Best pace" : "Max speed"), has: timed },
   { key: "gain", label: () => "Elevation gain", has: (a) => a.summary.elevGain !== undefined },
   { key: "loss", label: () => "Elevation loss", has: (a) => a.summary.elevLoss !== undefined },

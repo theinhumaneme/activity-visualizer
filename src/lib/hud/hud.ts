@@ -6,6 +6,7 @@
 // disclosed; on 9:16 the top 12% and bottom 18% stay clear of key content.
 
 import type { Analysis } from "../analysis/types";
+import { minetti } from "../analysis/gap";
 import { atIndex } from "../analysis/series";
 import { type GhostRunner, gapWords, ghostsAt } from "../playback/ghosts";
 import type { PhotoPage } from "../playback/photoStops";
@@ -515,6 +516,16 @@ function liveItems(a: Analysis, i: number, chosen: readonly LiveStat[] = DEFAULT
         value: !moving || i <= a.privacy.from ? "—" : pace ? formatPace(1000 / v, u, false) : formatSpeed(v, u, false),
         unit: !moving && i > a.privacy.from ? "paused" : pace ? `/${unit}` : u === "metric" ? "km/h" : "mph",
       });
+    } else if (key === "gap") {
+      // What the live pace would be worth on the flat at this grade.
+      const v = atIndex(a.speedLive, i);
+      const moving = a.moving[Math.min(a.n - 2, Math.floor(i))] === 1 && v > 0.5;
+      const flat = (v * minetti(atIndex(a.grade!, i))) / minetti(0);
+      out.push({
+        label: "GAP",
+        value: !moving || i <= a.privacy.from ? "—" : formatPace(1000 / flat, u, false),
+        unit: !moving && i > a.privacy.from ? "paused" : `/${unit}`,
+      });
     } else if (key === "hr") {
       const hr = atIndex(a.hr, i);
       const z = Number.isFinite(hr) ? zoneIndex(a, hr) : -1;
@@ -834,6 +845,7 @@ function endStats(a: Analysis, chosen: readonly EndStat[] = DEFAULT_END, weather
     else if (key === "moving") out.push({ label: "MOVING TIME", value: formatDuration(sm.moving) });
     else if (key === "stopped") out.push({ label: "STOPPED", value: formatDuration(sm.stoppedTime) });
     else if (key === "avg") out.push({ label: `AVG ${motionLabel(kind).toUpperCase()}`, ...split(formatMotion(sm.avgSpeed, kind, u)) });
+    else if (key === "gap") out.push({ label: "AVG GAP", value: formatPace(sm.gapPace!, u, false), unit: `/${unitLabel(u)}` });
     else if (key === "best")
       out.push(
         usesPace(kind)
