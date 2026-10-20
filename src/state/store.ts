@@ -13,6 +13,7 @@ import { DEFAULT_END, DEFAULT_LIVE, type EndStat, type LiveStat } from "../lib/h
 import type { CameraDistance } from "../lib/playback/lengths";
 import { type MapDetail, resolveDetail } from "../lib/map/detail";
 import type { Activity } from "../lib/parse/types";
+import { combineActivities } from "../lib/library/combine";
 import { boundsOf } from "../lib/geo/geo";
 import { type Weather, fetchWeather } from "../lib/weather";
 import type { GhostRunner } from "../lib/playback/ghosts";
@@ -109,6 +110,14 @@ function storedRouteColor(): string {
   return ACCENT;
 }
 
+/** One activity of a combined day, as read from its file. */
+export interface CombinedSource {
+  text: string;
+  fileName: string;
+  /** Which activity in the file. */
+  index: number;
+}
+
 export interface Highlight {
   from: number;
   to: number;
@@ -180,6 +189,8 @@ interface State {
   setMapDetail(d: MapDetail): void;
 
   loadText(text: string, fileName: string): Promise<boolean>;
+  /** Stitches activities from several files into one (a combined day) and loads it. */
+  loadCombined(sources: CombinedSource[]): Promise<boolean>;
   loadFile(file: File): Promise<boolean>;
   loadSample(): Promise<boolean>;
   restoreSession(): Promise<void>;
@@ -406,6 +417,27 @@ export const useStore = create<State>((set, get) => {
       }
     },
 
+    async loadCombined(sources) {
+      for (const p of get().photos) p.bitmap.close();
+      set({ loading: true, error: null, ghosts: null, photos: [] });
+      try {
+        const parsed = await Promise.all(sources.map((src) => parseInWorker(src.text, src.fileName)));
+        const combined = combineActivities(parsed.map((acts, k) => acts[sources[k].index] ?? acts[0]));
+        set({ fileName: combined.name, activities: [combined] });
+        await selectActivity(combined);
+        set({ loading: false });
+        try {
+          sessionStorage.setItem(SESSION_KEY, JSON.stringify({ combined: sources }));
+        } catch {
+          // Too large or storage unavailable; refresh will just return to upload.
+        }
+        return true;
+      } catch (err) {
+        set({ loading: false, error: err instanceof Error ? err.message : String(err) });
+        return false;
+      }
+    },
+
     async loadFile(file) {
       if (file.size > 60 * 1024 * 1024) {
         set({ error: "That file is over 60 MB. Activity exports are usually under 10 MB; is it the right file?" });
@@ -435,8 +467,9 @@ export const useStore = create<State>((set, get) => {
         try {
           const raw = sessionStorage.getItem(SESSION_KEY);
           if (!raw) return;
-          const { fileName, text } = JSON.parse(raw) as { fileName: string; text: string };
-          await get().loadText(text, fileName);
+          const saved = JSON.parse(raw) as { fileName: string; text: string } | { combined: CombinedSource[] };
+          if ("combined" in saved) await get().loadCombined(saved.combined);
+          else await get().loadText(saved.text, saved.fileName);
         } catch {
           // Ignore a corrupt session entry.
         }

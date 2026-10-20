@@ -1,4 +1,5 @@
 import type { Activity, Sample } from "../parse/types";
+import type { Bridge } from "./bridges";
 import type { CleaningReport } from "./clean";
 import type { Climb } from "./climbs";
 import type { Intervals } from "./intervals";
@@ -167,6 +168,8 @@ export interface Analysis {
   /** Notable points for the flyover and copy (fastest split, high point, reps…). */
   moments: Moment[];
   privacy: Privacy;
+  /** Hand-offs between the activities of a combined day, which the flyover flies across. */
+  bridges: Bridge[];
   cleaning: CleaningReport;
   paceHistogram: { from: number; to: number; seconds: number }[];
   quality: QualityItem[];

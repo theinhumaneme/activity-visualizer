@@ -174,7 +174,7 @@ export function ExportPage() {
 
   const pct = progress ? progress.frame / Math.max(1, progress.total) : 0;
   const eta = progress && progress.stage === "frames" && progress.frame > 10 ? (progress.elapsedMs / progress.frame) * (progress.total - progress.frame) : null;
-  const fileName = `${a.settings.name.replace(/[^\w\- ]+/g, "").trim() || "activity"}-${aspect.replace(":", "x")}.${result?.extension ?? "mp4"}`;
+  const fileName = `${a.settings.name.replace(/[^\w\- ]+/g, "").replace(/\s+/g, " ").trim() || "activity"}-${aspect.replace(":", "x")}.${result?.extension ?? "mp4"}`;
   const what = kind === "poster" ? "poster" : "video";
 
   return (
@@ -432,7 +432,13 @@ export function ExportPage() {
                   : ", PNG"}
               </span>
               <br />
-              {a.settings.privacyRadius > 0 ? `Privacy zone on: ${a.settings.privacyRadius} m around start and finish left out.` : "Privacy zone off: your start and finish are visible. Turn it on in Check."}
+              {a.activity.parts
+                ? a.settings.privacyRadius > 0
+                  ? `Privacy zone on: ${a.settings.privacyRadius} m around every start and finish left out.`
+                  : "Privacy zone off: your starts and finishes are visible. Turn it on in the flyover."
+                : a.settings.privacyRadius > 0
+                  ? `Privacy zone on: ${a.settings.privacyRadius} m around start and finish left out.`
+                  : "Privacy zone off: your start and finish are visible. Turn it on in Check."}
             </p>
             {rendering ? (
               <button type="button" onClick={() => abort.current?.abort()} className="btn btn-secondary btn-lg w-full">

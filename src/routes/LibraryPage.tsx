@@ -1,15 +1,18 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
-import { ActivityList } from "../components/library/ActivityList";
+import { useNavigate } from "react-router";
+import { ActivityList, type CombineTo } from "../components/library/ActivityList";
 import { AddFiles } from "../components/library/AddFiles";
 import { type SportFilter, capitalize, distanceText, shortDate, sportPlural, sportSingular } from "../components/library/format";
 import { Progress } from "../components/library/Progress";
 import { Recap } from "../components/library/Recap";
-import { useOpenActivity } from "../components/steps";
+import { type FlyoverArrival, useOpenActivity } from "../components/steps";
 import { Loading, Segmented } from "../components/ui";
 import { unitLabel, unitLength } from "../lib/format/format";
 import { groupsWithin, inPeriod, periodIncludesNow, periodOptions } from "../lib/library/aggregate";
+import { MAX_COMBINED, countText, dateSpan } from "../lib/library/combine";
 import { personalRecords, recordsByActivity } from "../lib/library/records";
 import { groupRoutes, relabelGroups } from "../lib/library/similarity";
+import type { LibraryEntry } from "../lib/library/types";
 import type { SportKind } from "../lib/parse/types";
 import { libraryPrivacyRadius, useLibrary } from "../state/library";
 import { useStore } from "../state/store";
@@ -38,6 +41,52 @@ function storedTab(): Tab {
   return "recap";
 }
 
+/** The activities picked to fly together, with what they add up to and what to do with them. */
+function PickedBar({
+  picked,
+  hidden,
+  busy,
+  onCombine,
+  onClear,
+}: {
+  picked: LibraryEntry[];
+  hidden: number;
+  busy: boolean;
+  onCombine: (to: CombineTo) => void;
+  onClear: () => void;
+}) {
+  const sorted = [...picked].sort((a, b) => a.startTime - b.startTime);
+  const enough = sorted.length >= 2;
+  const tooMany = sorted.length > MAX_COMBINED;
+  const ready = enough && !tooMany && !busy;
+  const btn = "btn btn-sm disabled:opacity-50";
+  return (
+    <div role="region" aria-label="Picked activities" className="sticky bottom-3 z-10 mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-grid bg-surface px-4 py-3 shadow-[var(--shadow-pop)]">
+      <div className="min-w-0 text-sm" aria-live="polite">
+        <span className="font-semibold text-ink">
+          {dateSpan(sorted[0].startTime, sorted[sorted.length - 1].startTime, sorted[0].utcOffsetMin)} · {countText(sorted.map((e) => e.kind))}
+        </span>
+        <span className="text-muted">
+          {hidden > 0 && ` · ${hidden} not in this view`}
+          {!enough && " · pick one more to fly them together"}
+          {tooMany && ` · up to ${MAX_COMBINED} fly together`}
+        </span>
+      </div>
+      <div className="ml-auto flex flex-wrap gap-2">
+        <button onClick={onClear} className={`${btn} btn-quiet`}>
+          Clear
+        </button>
+        <button onClick={() => onCombine("export")} disabled={!ready} className={`${btn} btn-secondary`}>
+          Export as one video
+        </button>
+        <button onClick={() => onCombine("flyover")} disabled={!ready} className={`${btn} btn-primary`}>
+          {busy ? "Opening…" : "Fly them together"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function LibraryPage() {
   const entries = useLibrary((s) => s.entries);
   const loading = useLibrary((s) => s.loading);
@@ -53,6 +102,7 @@ export function LibraryPage() {
   const notSaved = useLibrary((s) => s.notSaved);
   const upgrading = useLibrary((s) => s.upgrading);
   const open = useLibrary((s) => s.open);
+  const openCombined = useLibrary((s) => s.openCombined);
   const mainUnits = useStore((s) => s.settings?.units);
   const mainError = useStore((s) => s.error);
 
@@ -108,6 +158,28 @@ export function LibraryPage() {
     setOpening(null);
     if (ok) openLanding();
     else setOpenError(useStore.getState().error ?? mainError ?? "Couldn't open that file.");
+  }
+
+  // Activities picked to fly as one, from anywhere in the library (filters don't drop them).
+  const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set());
+  const selectRows = (ids: string[], on: boolean) =>
+    setPicked((p) => {
+      const next = new Set(p);
+      for (const id of ids) {
+        if (on) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  const pickedEntries = useMemo(() => entries.filter((e) => picked.has(e.id)), [entries, picked]);
+  const navigate = useNavigate();
+  async function combine(ids: string[], to: CombineTo) {
+    setOpening("combined");
+    setOpenError(null);
+    const ok = await openCombined(ids);
+    setOpening(null);
+    if (ok) navigate(to === "export" ? "/export" : "/flyover", { state: { autoplay: to === "flyover" } satisfies FlyoverArrival });
+    else setOpenError(useStore.getState().error ?? "Couldn't put those activities together.");
   }
 
   const total = useMemo(() => shown.reduce((s, e) => s + e.distance, 0), [shown]);
@@ -255,9 +327,35 @@ export function LibraryPage() {
               {tab === "race" && <Race key={`${kind}-${period}`} groups={groups} byId={byId} radius={radius} units={units} />}
             </Suspense>
             {tab === "progress" && <Progress records={shown} history={ofKind} throughToday={periodIncludesNow(period)} kind={kind} units={units} />}
-            {tab === "list" && <ActivityList records={shown} prsById={prsAllTime} kind={kind} units={units} opening={opening} onOpen={openActivity} />}
+            {tab === "list" && (
+              <ActivityList
+                records={shown}
+                prsById={prsAllTime}
+                kind={kind}
+                units={units}
+                opening={opening}
+                onOpen={openActivity}
+                selected={picked}
+                onSelect={selectRows}
+                onCombine={(ids, to) => void combine(ids, to)}
+              />
+            )}
           </div>
-          {tab === "list" && <p className="mt-2 text-xs text-muted">PR badges are all-time bests for each distance across your library. GAP is pace adjusted for hills; load is heart-rate training load (TRIMP), or TSS from power.</p>}
+          {tab === "list" && (
+            <p className="mt-2 text-xs text-muted">
+              Tick two or more activities (shift-click for a run of them) to fly them as one, in the order they happened; days with several get a one-click “Fly the day”. PR badges are
+              all-time bests for each distance across your library. GAP is pace adjusted for hills; load is heart-rate training load (TRIMP), or TSS from power.
+            </p>
+          )}
+          {tab === "list" && pickedEntries.length > 0 && (
+            <PickedBar
+              picked={pickedEntries}
+              hidden={pickedEntries.filter((e) => !byId.has(e.id)).length}
+              busy={opening !== null}
+              onCombine={(to) => void combine([...picked], to)}
+              onClear={() => setPicked(new Set())}
+            />
+          )}
         </>
       )}
     </div>

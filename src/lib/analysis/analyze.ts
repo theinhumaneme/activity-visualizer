@@ -9,6 +9,7 @@ import { detectIntervals } from "./intervals";
 import { hrRecovery, steepest, withVam } from "./metrics";
 import { findMoments } from "./moments";
 import { computePower } from "./power";
+import { computeBridges, partBreaks } from "./bridges";
 import { computePrivacy } from "./privacy";
 import { buildInsights, buildQuality } from "./report";
 import { atIndex, indexAtDist, indexAtDistCursor, interpCursor } from "./series";
@@ -289,7 +290,8 @@ export function analyze(activity: Activity, settings: Settings, demAll: Float64A
   const climbs = vam.climbs;
   summary.vam = vam.vam;
   if (hasHr && !activity.routeOnly) summary.hrRecovery = hrRecovery(t, hr, moving, movingTime, stops);
-  const privacy = computePrivacy(samples, settings.privacyRadius);
+  const breaks = partBreaks(activity.parts, trimmed.offset, n);
+  const privacy = computePrivacy(samples, settings.privacyRadius, breaks);
 
   const analysis: Analysis = {
     activity,
@@ -320,6 +322,7 @@ export function analyze(activity: Activity, settings: Settings, demAll: Float64A
     power: activity.routeOnly ? null : computePower(samples, t, settings.ftp ?? 0, settings.wPrime ?? 0),
     moments: [],
     privacy,
+    bridges: computeBridges(breaks, privacy),
     cleaning: {
       teleports: cleaned.teleports,
       driftStart: cleaned.driftStart,

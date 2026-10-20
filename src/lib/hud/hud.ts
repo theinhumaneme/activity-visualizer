@@ -424,14 +424,28 @@ function drawTitle(
   ctx.textAlign = portrait ? "center" : "left";
   const baseY = portrait ? safeTop + (safeBottom - safeTop) * 0.36 : H - 210 * s;
   const title = a.settings.name.toUpperCase();
-  const size = fitSize(ctx, title, titleWeight(titleFont), (portrait ? 110 : 100) * s, 44 * s, W - 128 * s, titleFont);
+  const maxSize = (portrait ? 110 : 100) * s;
+  // A shrunk title lands right at the width limit, and text width isn't quite linear in font size:
+  // keep 2% spare so it isn't truncated by a hair.
+  const fit = (t: string) => {
+    const v = fitSize(ctx, t, titleWeight(titleFont), maxSize, 0, W - 128 * s, titleFont);
+    return v < maxSize ? v * 0.98 : v;
+  };
+  // A title too long for one line at a readable size ("OCT 20, 2026 · 2 RIDES" in portrait)
+  // breaks at its "·" onto two lines, the first above the usual baseline.
+  const halves = title.split(" · ");
+  const lines = fit(title) < 64 * s && halves.length === 2 ? halves : [title];
+  const size = Math.max(44 * s, Math.min(...lines.map(fit)));
   ctx.fillStyle = P.hi;
   ctx.font = `${titleWeight(titleFont)} ${size}px ${titleFont}`;
-  ctx.fillText(truncate(ctx, title, W - 128 * s), x, baseY + rise);
+  lines.forEach((l, k) => ctx.fillText(truncate(ctx, l, W - 128 * s), x, baseY + rise - (lines.length - 1 - k) * size * 0.92));
   const act = a.activity;
+  // A combined day's name already carries the date ("Oct 20, 2026 · 2 rides"): give the hours instead.
   const line = act.routeOnly
     ? `ROUTE · ${formatDistance(a.summary.distance, a.settings.units)}`
-    : `${formatDate(act.startTime, act.utcOffsetMin).toUpperCase()} · ${formatClock(act.startTime, act.utcOffsetMin)} · ${formatDistance(a.summary.distance, a.settings.units)}`;
+    : act.parts
+      ? `${formatClock(act.startTime, act.utcOffsetMin)} – ${formatClock(a.samples[a.n - 1].time, act.utcOffsetMin)} · ${formatDistance(a.summary.distance, a.settings.units)}`
+      : `${formatDate(act.startTime, act.utcOffsetMin).toUpperCase()} · ${formatClock(act.startTime, act.utcOffsetMin)} · ${formatDistance(a.summary.distance, a.settings.units)}`;
   spaced(ctx, line, x, baseY + 52 * s + rise, 22 * s, P.mid, 600, portrait ? "center" : "left");
   ctx.fillStyle = o.accent;
   const rw = 72 * s;
@@ -795,7 +809,11 @@ function drawEndCard(
   const act = a.activity;
   spaced(
     ctx,
-    act.routeOnly ? "ROUTE" : `${formatDate(act.startTime, act.utcOffsetMin).toUpperCase()} · ${formatClock(act.startTime, act.utcOffsetMin)}`,
+    act.routeOnly
+      ? "ROUTE"
+      : act.parts
+        ? `${formatClock(act.startTime, act.utcOffsetMin)} – ${formatClock(a.samples[a.n - 1].time, act.utcOffsetMin)}`
+        : `${formatDate(act.startTime, act.utcOffsetMin).toUpperCase()} · ${formatClock(act.startTime, act.utcOffsetMin)}`,
     pad,
     subY,
     18 * s,

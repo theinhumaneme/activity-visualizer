@@ -61,6 +61,17 @@ interface LibraryState {
   setUnits(u: Units): void;
   /** Loads one activity into the single-activity flow. */
   open(id: string): Promise<boolean>;
+  /** Stitches several activities into one, in the order they happened, and loads that. */
+  openCombined(ids: string[]): Promise<boolean>;
+}
+
+/** An entry's file as text (Strava bulk exports gzip them), with the name it's parsed under. */
+async function readEntry(entry: LibraryEntry): Promise<{ text: string; fileName: string }> {
+  if (/\.gz$/i.test(entry.file.name)) {
+    const text = await new Response(entry.file.stream().pipeThrough(new DecompressionStream("gzip"))).text();
+    return { text, fileName: entry.file.name.replace(/\.gz$/i, "") };
+  }
+  return { text: await entry.file.text(), fileName: entry.file.name };
 }
 
 let abort: AbortController | null = null;
@@ -169,15 +180,24 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     const entry = get().entries.find((e) => e.id === id);
     if (!entry) return false;
     const main = useStore.getState();
-    let ok: boolean;
-    if (/\.gz$/i.test(entry.file.name)) {
-      const text = await new Response(entry.file.stream().pipeThrough(new DecompressionStream("gzip"))).text();
-      ok = await main.loadText(text, entry.file.name.replace(/\.gz$/i, ""));
-    } else ok = await main.loadFile(entry.file);
+    const ok = /\.gz$/i.test(entry.file.name) ? await readEntry(entry).then((r) => main.loadText(r.text, r.fileName)) : await main.loadFile(entry.file);
     if (!ok) return false;
     const s = useStore.getState();
     if (s.activities.length > 1 && s.activities[entry.activityIndex]) s.chooseActivity(entry.activityIndex);
     return true;
+  },
+
+  async openCombined(ids) {
+    const picked = get()
+      .entries.filter((e) => ids.includes(e.id))
+      .sort((a, b) => a.startTime - b.startTime);
+    try {
+      const sources = await Promise.all(picked.map(async (e) => ({ ...(await readEntry(e)), index: e.activityIndex })));
+      return await useStore.getState().loadCombined(sources);
+    } catch (err) {
+      useStore.setState({ loading: false, error: err instanceof Error ? err.message : String(err) });
+      return false;
+    }
   },
 }));
 

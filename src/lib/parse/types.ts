@@ -73,4 +73,18 @@ export interface Activity {
   routeOnly: boolean;
   /** The file was a multisport session; this is one leg of it. */
   multisport?: boolean;
+  /**
+   * Several activities stitched into this one (a combined day; see library/combine.ts), in order.
+   * Each starts a new track segment, and the time between them is a stop.
+   */
+  parts?: ActivityPart[];
+}
+
+/** One activity inside a combined one. */
+export interface ActivityPart {
+  name: string;
+  kind: SportKind;
+  startTime: number;
+  /** Index of its first sample in the combined activity. */
+  startIndex: number;
 }

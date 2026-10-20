@@ -13,7 +13,7 @@
 import type { Moment } from "../analysis/moments";
 import type { Analysis } from "../analysis/types";
 import { atIndex, indexAtDist, interpAt, movingAverage } from "../analysis/series";
-import { type Bounds, type LngLat, boundsCenter, boundsOf, fitZoom, toDeg, toRad } from "../geo/geo";
+import { type Bounds, type LngLat, boundsCenter, boundsOf, fitZoom, haversine, toDeg, toRad } from "../geo/geo";
 import type { ElevationAt } from "../geo/terrainGrid";
 import { SPORTS } from "../sport";
 
@@ -138,6 +138,10 @@ const PACE_RANGE = 2;
 /** Moments may take at most this share of the chase, and slow the marker at most this much. */
 const MAX_DWELL_SHARE = 0.3;
 const MAX_SLOWDOWN = 2.5;
+/** Video seconds for flying across a bridge (a hand-off in a combined day): grows with its length. */
+const bridgeSeconds = (meters: number) => Math.min(4, 1.2 + 0.6 * Math.log1p(meters / 1000));
+/** Bridges may take at most this share of the chase. */
+const MAX_BRIDGE_SHARE = 0.3;
 const RAIL_STEP = 5; // m
 /** Camera clearance above terrain at the camera, m; tapers to 0 at the look-at point. */
 const CLEARANCE = 110;
@@ -206,7 +210,32 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
   const { from, to } = a.privacy;
   const lon = Float64Array.from(a.samples, (s) => s.lon);
   const lat = Float64Array.from(a.samples, (s) => s.lat);
-  const headAt = (f: number): LngLat => [atIndex(lon, f), atIndex(lat, f)];
+
+  // Bridges (hand-offs between the activities of a combined day) are flown straight across, from
+  // their first to their last sample, whatever lies between (hours stopped, a privacy circle).
+  // The rail runs on its own distance: the route's, with each bridge replaced by that straight
+  // line (linear in sample index across it, so index ↔ rail distance still inverts cleanly).
+  const bridges = (a.bridges ?? []).filter((b) => b.from >= from && b.to <= to && b.to > b.from);
+  const bridgeLen = bridges.map((b) => Math.max(4 * RAIL_STEP, haversine(lat[b.from], lon[b.from], lat[b.to], lon[b.to])));
+  const rd = Float64Array.from(dist);
+  const inBridge = new Uint8Array(n);
+  for (let i = 1, j = 0; i < n; i++) {
+    while (j < bridges.length && bridges[j].to < i) j++;
+    const b = bridges[j];
+    if (b && i > b.from) {
+      rd[i] = rd[b.from] + (bridgeLen[j] * (i - b.from)) / (b.to - b.from);
+      if (i < b.to) inBridge[i] = 1;
+    } else rd[i] = rd[i - 1] + (dist[i] - dist[i - 1]);
+  }
+  for (const b of bridges) inBridge[b.from] = 1;
+  const bridgeAt = (f: number) => bridges.findIndex((b) => f > b.from && f < b.to);
+  const headAt = (f: number): LngLat => {
+    const j = bridges.length ? bridgeAt(f) : -1;
+    if (j < 0) return [atIndex(lon, f), atIndex(lat, f)];
+    const b = bridges[j];
+    const u = (f - b.from) / (b.to - b.from);
+    return [lerp(lon[b.from], lon[b.to], u), lerp(lat[b.from], lat[b.to], u)];
+  };
 
   // Local east/north meters around the route, for camera geometry.
   const visible = a.samples.slice(from, to + 1);
@@ -229,16 +258,16 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
   // --- Camera rail: the route resampled every 5 m -------------------------------------------
   // Two versions: lightly smoothed (±10 m) for where the athlete is, heavily smoothed (~±60 m)
   // for which way the camera faces, so switchbacks don't swing it.
-  const d0 = dist[from];
-  const d1 = Math.max(d0 + 1, dist[to]);
+  const d0 = rd[from];
+  const d1 = Math.max(d0 + 1, rd[to]);
   const K = Math.max(2, Math.ceil((d1 - d0) / RAIL_STEP) + 1);
   const railD = new Float64Array(K);
   let rx: Float64Array = new Float64Array(K);
   let ry: Float64Array = new Float64Array(K);
   for (let k = 0; k < K; k++) {
     railD[k] = Math.min(d1, d0 + k * RAIL_STEP);
-    const f = Math.min(to, Math.max(from, indexAtDist(dist, railD[k])));
-    [rx[k], ry[k]] = toXY(atIndex(lon, f), atIndex(lat, f));
+    const f = Math.min(to, Math.max(from, indexAtDist(rd, railD[k])));
+    [rx[k], ry[k]] = toXY(...headAt(f));
   }
   const mx = movingAverage(rx, 2);
   const my = movingAverage(ry, 2);
@@ -278,10 +307,12 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
   if (cinematic && a.grade) for (let i = 0; i < n; i++) climb[i] = 1 + 2.5 * Math.max(0, a.grade[i]);
   const climbSmooth = movingAverage(climb, 15);
   for (let i = from; i < to; i++) {
+    // Bridges get their screen time separately, below.
+    if (inBridge[i]) continue;
     const w = (t[i + 1] - t[i]) * (moving[i] ? 1 : STOP_WEIGHT) * climbSmooth[i];
     if (!(w > 0)) continue;
-    const da = dist[i];
-    const db = dist[i + 1];
+    const da = rd[i];
+    const db = rd[i + 1];
     if (db - da < 0.5) {
       binW[binOf(da)] += w;
       continue;
@@ -297,25 +328,39 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
     binLen[k] = Math.max(1e-6, railD[k + 1] - railD[k]);
     rate0[k] = binW[k] / binLen[k];
   }
-  const smoothR = Math.max(1, Math.round((PACE_SMOOTH_S * (d1 - d0)) / FOLLOW / RAIL_STEP / 2));
+  // Which bridge each bin lies on (-1: none). The rate before a bridge is held across it, so the
+  // smoothing doesn't speed up the activities on either side.
+  const bridgeOf = new Int16Array(bins).fill(-1);
+  bridges.forEach((b, j) => {
+    for (let k = binOf(rd[b.from]); k <= binOf(rd[b.to]); k++) {
+      const mid = (railD[k] + railD[k + 1]) / 2;
+      if (mid > rd[b.from] && mid < rd[b.to]) bridgeOf[k] = j;
+    }
+  });
+  for (let k = 1; k < bins; k++) if (bridgeOf[k] >= 0) rate0[k] = rate0[k - 1];
+  let routeLen = 0;
+  for (let k = 0; k < bins; k++) if (bridgeOf[k] < 0) routeLen += binLen[k];
+  routeLen = Math.max(1, routeLen);
+  const smoothR = Math.max(1, Math.round((PACE_SMOOTH_S * routeLen) / FOLLOW / RAIL_STEP / 2));
   for (let pass = 0; pass < 3; pass++) rate0 = movingAverage(rate0, smoothR);
   let logSum = 0;
-  for (let k = 0; k < bins; k++) logSum += Math.log(Math.max(1e-9, rate0[k])) * binLen[k];
-  const geo = Math.exp(logSum / (d1 - d0));
+  for (let k = 0; k < bins; k++) if (bridgeOf[k] < 0) logSum += Math.log(Math.max(1e-9, rate0[k])) * binLen[k];
+  const geo = Math.exp(logSum / routeLen);
   const rate1 = new Float64Array(bins);
   let Wb = 0;
   for (let k = 0; k < bins; k++) {
+    if (bridgeOf[k] >= 0) continue;
     const rel = (Math.max(1e-9, rate0[k]) / geo) ** PACE_CONTRAST;
     rate1[k] = geo * Math.min(PACE_RANGE, Math.max(1 / PACE_RANGE, rel));
     Wb += rate1[k] * binLen[k];
   }
-  const rbar = Wb / (d1 - d0);
+  const rbar = Wb / routeLen;
 
   // Moments: a raised-cosine slow-down around each, sized so the callout holds ≥ its dwell.
-  const moments = cinematic ? a.moments.filter((m) => m.at >= from && m.at <= to) : [];
-  const hwm = Math.max(2 * RAIL_STEP, 0.025 * (d1 - d0));
+  const moments = cinematic ? a.moments.filter((m) => m.at >= from && m.at <= to && (!bridges.length || bridgeAt(m.at) < 0)) : [];
+  const hwm = Math.max(2 * RAIL_STEP, 0.025 * routeLen);
   const half = moments.map(() => hwm * rbar);
-  const centers = moments.map((m) => atIndex(dist, m.at));
+  const centers = moments.map((m) => atIndex(rd, m.at));
   let dwell = moments.map((m) => m.dwell);
   const totalDwell = dwell.reduce((x, y) => x + y, 0);
   if (totalDwell > FOLLOW * MAX_DWELL_SHARE) dwell = dwell.map((d) => (d * FOLLOW * MAX_DWELL_SHARE) / totalDwell);
@@ -333,8 +378,32 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
     return m;
   };
   // Cumulative screen weight at each rail point: strictly increasing, so it inverts cleanly.
+  const binWeight = new Float64Array(bins);
+  let Wroute = 0;
+  for (let k = 0; k < bins; k++) {
+    if (bridgeOf[k] >= 0) continue;
+    binWeight[k] = (rate1[k] + rbar * bump((railD[k] + railD[k + 1]) / 2)) * binLen[k];
+    Wroute += binWeight[k];
+  }
+  // Each bridge gets a set share of the chase, eased in and out along its length (the inverse of
+  // smoothstep, so the flight starts and lands gently).
+  if (bridges.length) {
+    let secs = bridgeLen.map(bridgeSeconds);
+    const total = secs.reduce((x, y) => x + y, 0);
+    if (total > FOLLOW * MAX_BRIDGE_SHARE) secs = secs.map((x) => (x * FOLLOW * MAX_BRIDGE_SHARE) / total);
+    const share = secs.reduce((x, y) => x + y, 0) / FOLLOW;
+    const Wall = Wroute / (1 - share);
+    const invSmooth = (x: number) => 0.5 - Math.sin(Math.asin(1 - 2 * clamp01(x)) / 3);
+    for (let k = 0; k < bins; k++) {
+      const j = bridgeOf[k];
+      if (j < 0) continue;
+      const lo = rd[bridges[j].from];
+      const span = rd[bridges[j].to] - lo;
+      binWeight[k] = (secs[j] / FOLLOW) * Wall * (invSmooth((railD[k + 1] - lo) / span) - invSmooth((railD[k] - lo) / span)) || 1e-9;
+    }
+  }
   const C = new Float64Array(K);
-  for (let k = 0; k < bins; k++) C[k + 1] = C[k] + (rate1[k] + rbar * bump((railD[k] + railD[k + 1]) / 2)) * binLen[k];
+  for (let k = 0; k < bins; k++) C[k + 1] = C[k] + binWeight[k];
   const Wm = C[K - 1] || 1;
 
   // Trapezoidal velocity profile: the marker eases from rest at the start and to rest at the finish.
@@ -354,10 +423,10 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
   const indexAtT = (T: number) => {
     if (T <= Tc) return from;
     if (T >= Tf) return to;
-    return Math.min(to, Math.max(from, indexAtDist(dist, distAtT(T))));
+    return Math.min(to, Math.max(from, indexAtDist(rd, distAtT(T))));
   };
   function timeAtIndex(i: number): number {
-    const target = interpAt(railD, C, atIndex(dist, Math.min(to, Math.max(from, i)))) / Wm;
+    const target = interpAt(railD, C, atIndex(rd, Math.min(to, Math.max(from, i)))) / Wm;
     let lo = 0;
     let hi = 1;
     for (let k = 0; k < 40; k++) {
@@ -368,6 +437,11 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
     return Tc + ((lo + hi) / 2) * FOLLOW;
   }
   const momentTimes = moments.map((m, k) => ({ m, T: timeAtIndex(m.at), hw: dwell[k] / 2 }));
+  const bridgeTimes = bridges.map((b, j) => ({ Ta: timeAtIndex(b.from), Tb: timeAtIndex(b.to), len: bridgeLen[j] }));
+  /** 0 → 1 → 0 across each bridge, with `lead` seconds either side. */
+  const bridgeWindow = (T: number, lead: number, Ta: number, Tb: number) => Math.min(smooth(ramp(T, Ta - lead, lead)), 1 - smooth(ramp(T, Tb, lead)));
+  /** The marker hides while the camera flies across a bridge. */
+  const bridgeHide = (T: number) => bridgeTimes.reduce((m, { Ta, Tb }) => Math.max(m, bridgeWindow(T, 0.25, Ta, Tb)), 0);
 
   // --- Poses ---------------------------------------------------------------------------------
   // A pose is where the camera looks from (bearing, pitch, distance). Where it looks *at* is
@@ -390,6 +464,20 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
   const leadFor = (D: number, pitch: number) => {
     const p = toRad(pitch);
     return D * (Math.sin(p) - Math.cos(p) * Math.tan(p - subjectTilt));
+  };
+
+  /**
+   * Across a bridge the camera climbs (up to ~12× its distance) so the flight shows where the
+   * next activity starts, then settles back behind the athlete as it lands.
+   */
+  const bridgeLift = (T: number, D: number) => {
+    let lift = 1;
+    for (const { Ta, Tb, len } of bridgeTimes) {
+      const lead = 0.6 + 0.35 * (Tb - Ta);
+      const e = Math.min(smooth(ramp(T, Ta - 0.6, lead)), 1 - smooth(ramp(T, Tb - 0.35 * (Tb - Ta), lead)));
+      if (e > 0) lift = Math.max(lift, Math.min(12, Math.max(1, (0.8 * len) / D)) ** e);
+    }
+    return lift;
   };
 
   /** Screen speed (meters of route per video second) widens the shot when things move fast. */
@@ -415,7 +503,7 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
   };
   const chasePose = (T: number): Pose => {
     const d = distAtT(T);
-    const D = baseD * rig.dist * (1 + Math.min(0.8, screenSpeed(T) / 1100));
+    const D = baseD * rig.dist * (1 + Math.min(0.8, screenSpeed(T) / 1100)) * bridgeLift(T, baseD * rig.dist);
     const { push, orbit } = momentBump(T);
     return {
       bearing: facing(d, T) + orbit * 50,
@@ -629,11 +717,12 @@ export function buildTimeline(a: Analysis, opts: TimelineOptions): Timeline {
       index,
       head: headAt(index),
       statsIndex: indexAtT(Tq),
-      rate: T > Tc && T < Tf ? Math.abs(activityAt(T + 0.5) - activityAt(T - 0.5)) : 0,
+      // No time compression to show while flying across a bridge (the clock skips the break).
+      rate: T > Tc && T < Tf && !bridgeTimes.some(({ Ta, Tb }) => T > Ta - 0.5 && T < Tb + 0.5) ? Math.abs(activityAt(T + 0.5) - activityAt(T - 0.5)) : 0,
       moment,
       fx: {
         title: window_(T, 0.2, 0.6, INTRO - 0.55, 0.4),
-        marker: easeOutExpo(ramp(T, Tr, 0.5)),
+        marker: easeOutExpo(ramp(T, Tr, 0.5)) * (bridges.length ? 1 - bridgeHide(T) : 1),
         start: window_(T, Tr + 0.1, 0.45, Tc + 0.9, 0.32),
         // The live HUD gives way to the FINISH card, which carries the final time.
         hud: window_(T, Tr + 0.3, 0.45, Tf - 0.1, 0.32),

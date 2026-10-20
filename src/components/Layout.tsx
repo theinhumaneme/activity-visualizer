@@ -4,7 +4,7 @@ import { install, useIncoming, useInstall } from "../lib/pwa";
 import { useLibrary } from "../state/library";
 import { useStore } from "../state/store";
 import { type ThemePref, useTheme } from "../state/theme";
-import { STEPS, useOpenActivity } from "./steps";
+import { type Step, useOpenActivity, useSteps } from "./steps";
 import { Check, Chevron, PageSkeleton, Segmented } from "./ui";
 
 const REPO = "https://github.com/theinhumaneme/activity-visualizer";
@@ -53,7 +53,7 @@ function InstallApp() {
 type StepState = "current" | "done" | "available" | "locked";
 
 /** Steps you've opened for this activity count as done; Upload is done once a file is loaded. */
-function useStepStates(): StepState[] {
+function useStepStates(steps: Step[]): StepState[] {
   const activity = useStore((s) => s.activity);
   const { pathname } = useLocation();
   const [visited, setVisited] = useState<{ of: unknown; paths: Set<string> }>({ of: activity, paths: new Set() });
@@ -67,7 +67,7 @@ function useStepStates(): StepState[] {
     });
   }, [activity, pathname]);
 
-  return STEPS.map((step, i) => {
+  return steps.map((step, i) => {
     if (step.path === pathname) return "current";
     if (i > 0 && !activity) return "locked";
     if (i === 0 ? !!activity : paths.has(step.path)) return "done";
@@ -80,7 +80,8 @@ export function Layout() {
   const settings = useStore((s) => s.settings);
   const updateSettings = useStore((s) => s.updateSettings);
   const { pathname } = useLocation();
-  const states = useStepStates();
+  const steps = useSteps();
+  const states = useStepStates(steps);
 
   const header = useRef<HTMLElement>(null);
 
@@ -104,7 +105,7 @@ export function Layout() {
             <img src="/favicon.svg" alt="" className="h-7 w-7" />
             <span className="hidden sm:inline lg:hidden xl:inline">Activity Visualizer</span>
           </Link>
-          <StepNav states={states} />
+          <StepNav steps={steps} states={states} />
           <div className="ml-auto flex shrink-0 items-center gap-2">
             {hasLibrary && (
               <NavLink to="/library" className={({ isActive }) => `btn btn-sm ${isActive ? "bg-ink text-page" : "btn-quiet"}`}>
@@ -126,7 +127,7 @@ export function Layout() {
             )}
           </div>
         </div>
-        <CompactSteps states={states} />
+        <CompactSteps steps={steps} states={states} />
       </header>
       <main className="flex-1">
         {/* Inside the layout, so the header stays put while a page's code loads. */}
@@ -167,11 +168,11 @@ function StepMark({ state, n }: { state: StepState; n: number }) {
 }
 
 /** Full six-step sequence, on wide screens. */
-function StepNav({ states }: { states: StepState[] }) {
+function StepNav({ steps, states }: { steps: Step[]; states: StepState[] }) {
   return (
     <nav aria-label="Steps" className="hidden min-w-0 flex-1 lg:block">
       <ol className="flex items-center gap-1">
-        {STEPS.map((step, i) => {
+        {steps.map((step, i) => {
           const state = states[i];
           const inner = (
             <>
@@ -208,7 +209,7 @@ function StepNav({ states }: { states: StepState[] }) {
 }
 
 /** "Step 3 of 6 · Overview" with the whole sequence one tap away, on phones and tablets. */
-function CompactSteps({ states }: { states: StepState[] }) {
+function CompactSteps({ steps, states }: { steps: Step[]; states: StepState[] }) {
   const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
   const box = useRef<HTMLDivElement>(null);
@@ -229,8 +230,8 @@ function CompactSteps({ states }: { states: StepState[] }) {
   }, [open]);
 
   if (current < 0) return null;
-  const prev = STEPS[current - 1];
-  const next = states[current + 1] && states[current + 1] !== "locked" ? STEPS[current + 1] : null;
+  const prev = steps[current - 1];
+  const next = states[current + 1] && states[current + 1] !== "locked" ? steps[current + 1] : null;
 
   return (
     <div ref={box} className="relative border-t border-grid lg:hidden">
@@ -249,9 +250,9 @@ function CompactSteps({ states }: { states: StepState[] }) {
           </span>
           <span className="min-w-0 truncate text-sm">
             <span className="text-ink-2">
-              Step {current + 1} of {STEPS.length} ·{" "}
+              Step {current + 1} of {steps.length} ·{" "}
             </span>
-            <span className="font-semibold text-ink">{STEPS[current].label}</span>
+            <span className="font-semibold text-ink">{steps[current].label}</span>
             <span className="sr-only">, {done} done. Show all steps</span>
           </span>
           <Chevron className={`ml-auto text-ink-2 transition-transform duration-200 ${open ? "rotate-90" : ""}`} />
@@ -270,7 +271,7 @@ function CompactSteps({ states }: { states: StepState[] }) {
       {open && (
         <nav id="step-menu" aria-label="Steps" className="drop-in absolute inset-x-0 top-full border-b border-grid bg-surface shadow-[var(--shadow-pop)]">
           <ol className="mx-auto grid max-w-7xl gap-0.5 px-4 py-2 sm:grid-cols-2 sm:px-6">
-            {STEPS.map((step, i) => {
+            {steps.map((step, i) => {
               const state = states[i];
               const row = "flex min-h-11 items-center gap-3 rounded-control px-2 text-[15px]";
               return (

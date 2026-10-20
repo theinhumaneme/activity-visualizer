@@ -5,7 +5,8 @@ import { ColorModePicker } from "../components/ColorModePicker";
 import { PhotoPicker } from "../components/PhotoPicker";
 import type { FlyoverArrival } from "../components/steps";
 import { ChipSelect, ControlRow, Failure, Loading, NextStep, Page, Segmented } from "../components/ui";
-import { formatDuration } from "../lib/format/format";
+import { formatClock, formatDate, formatDateTime, formatDuration } from "../lib/format/format";
+import type { ActivityPart } from "../lib/parse/types";
 import { sampler } from "../lib/geo/terrainGrid";
 import { drawHud, loadHudFonts } from "../lib/hud/hud";
 import { MAX_LIVE, liveOptions, withWeather, withoutWeather } from "../lib/hud/stats";
@@ -484,6 +485,7 @@ export function FlyoverPage() {
   const tl = timelineRef.current;
   const duration = tl?.duration ?? 1;
   const privacyOn = a.settings.privacyRadius > 0;
+  const parts = a.activity.parts;
 
   return (
     <Page
@@ -491,11 +493,12 @@ export function FlyoverPage() {
       subtitle={
         <>
           Your route over real terrain. Stops are fast-forwarded; the clock in the overlay is your real time.
+          {parts && <CombinedNote parts={parts} utcOffsetMin={a.activity.utcOffsetMin} />}
           {reduced && " Reduced motion is on, so the camera stays top-down with no orbits."}
         </>
       }
       wide
-      actions={<DataCheckLink warnings={a.quality.filter((q) => q.level === "warn").length} />}
+      actions={parts ? undefined : <DataCheckLink warnings={a.quality.filter((q) => q.level === "warn").length} />}
     >
       <div className="overflow-hidden rounded-card border border-grid bg-surface shadow-[var(--shadow-raised)]">
         <div data-map={look.hud === "light" ? "light" : "dark"} className="relative bg-[#101214] text-white">
@@ -749,7 +752,8 @@ export function FlyoverPage() {
           <ControlRow label="Privacy">
             <label className="flex min-h-8 items-center gap-2 text-sm">
               <input type="checkbox" checked={privacyOn} onChange={(e) => updateSettings({ privacyRadius: e.target.checked ? DEFAULT_PRIVACY_RADIUS : 0 })} />
-              Hide start and finish{privacyOn ? ` (${a.settings.privacyRadius} m)` : ""}
+              {parts ? "Hide every start and finish" : "Hide start and finish"}
+              {privacyOn ? ` (${a.settings.privacyRadius} m)` : ""}
             </label>
           </ControlRow>
         </section>
@@ -761,11 +765,30 @@ export function FlyoverPage() {
         {!terrainGrid && "Camera clearance uses the route's own elevation until terrain data loads."}
       </p>
 
-      <NextStep to="/export" label="Export video or poster" back={{ to: "/analysis", label: "Analysis" }} />
+      <NextStep to="/export" label="Export video or poster" back={parts ? { to: "/library", label: "Library" } : { to: "/analysis", label: "Analysis" }} />
     </Page>
   );
 }
 
+
+/** What a combined day is made of, and why there's no Analysis for it. */
+function CombinedNote({ parts, utcOffsetMin }: { parts: ActivityPart[]; utcOffsetMin?: number }) {
+  // Activities from several days say which day; one day's say the time.
+  const oneDay = new Set(parts.map((p) => formatDate(p.startTime, utcOffsetMin))).size === 1;
+  return (
+    <>
+      {" "}
+      This is {parts.length} activities flown in order:{" "}
+      {parts.map((p, i) => (
+        <span key={i}>
+          {i > 0 && ", then "}
+          <span className="text-ink">{p.name}</span> {oneDay ? `at ${formatClock(p.startTime, utcOffsetMin)}` : `on ${formatDateTime(p.startTime, utcOffsetMin)}`}
+        </span>
+      ))}
+      . The camera flies across the breaks between them. To analyze one, open it from the Library.
+    </>
+  );
+}
 
 /** Check is optional now that uploads land here: keep the audit, trim and privacy zone one click away. */
 function DataCheckLink({ warnings }: { warnings: number }) {
