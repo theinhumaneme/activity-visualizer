@@ -1,6 +1,6 @@
 // One profile per sport: everything sport-specific (cleaning limits, moving detection, pace vs
 // speed, which efforts mean something, how far the flyover camera sits back) lives here, so the
-// rest of the pipeline works for any activity a GPX or TCX file can hold.
+// rest of the pipeline works for any activity a GPX, TCX or FIT file can hold.
 
 import type { SportKind } from "./parse/types";
 
@@ -130,7 +130,7 @@ export const SPORTS: Record<SportKind, SportProfile> = {
   },
 };
 
-/** Maps a file's sport string (TCX Sport, GPX type, Strava/Garmin names) to a kind. */
+/** Maps a file's sport string (TCX Sport, GPX type, FIT sport name, Strava/Garmin names) to a kind. */
 export function sportKind(sport: string): SportKind {
   const s = sport.toLowerCase();
   if (/swim/.test(s)) return "swim";

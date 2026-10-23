@@ -1,7 +1,7 @@
 {
   "name": "Activity Visualizer",
   "short_name": "Activity Viz",
-  "description": "Turn any GPX or TCX activity into a 3D flyover, a full analysis, and a shareable video. Files never leave your device.",
+  "description": "Turn any FIT, GPX or TCX activity into a 3D flyover, a full analysis, and a shareable video. Files never leave your device.",
   "id": "/",
   "start_url": "/",
   "scope": "/",
@@ -20,7 +20,8 @@
       "action": "/",
       "accept": {
         "application/gpx+xml": [".gpx"],
-        "application/vnd.garmin.tcx+xml": [".tcx"]
+        "application/vnd.garmin.tcx+xml": [".tcx"],
+        "application/vnd.ant.fit": [".fit"]
       }
     }
   ],
@@ -32,7 +33,7 @@
       "files": [
         {
           "name": "files",
-          "accept": [".gpx", ".tcx", "application/gpx+xml", "application/vnd.garmin.tcx+xml", "application/xml", "text/xml", "application/octet-stream"]
+          "accept": [".gpx", ".tcx", ".fit", "application/gpx+xml", "application/vnd.garmin.tcx+xml", "application/xml", "text/xml", "application/octet-stream"]
         }
       ]
     }

@@ -1,9 +1,9 @@
 /// <reference lib="webworker" />
-import { parseActivityFile } from "./index";
+import { type FileData, parseActivityFile } from "./index";
 
-self.onmessage = (e: MessageEvent<{ text: string; fileName: string }>) => {
+self.onmessage = (e: MessageEvent<{ data: FileData; fileName: string }>) => {
   try {
-    const activities = parseActivityFile(e.data.text, e.data.fileName);
+    const activities = parseActivityFile(e.data.data, e.data.fileName);
     self.postMessage({ ok: true, activities });
   } catch (err) {
     self.postMessage({ ok: false, error: err instanceof Error ? err.message : String(err) });

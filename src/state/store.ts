@@ -7,6 +7,7 @@ import type { Analysis, Settings, Units } from "../lib/analysis/types";
 import { defaultUnits } from "../lib/format/format";
 import { ACCENT, type ColorMode, ROUTE_COLORS } from "../lib/map/route";
 import { parseInWorker } from "../lib/parse/client";
+import { type FileData, readActivityFile, restoredData, storableData } from "../lib/parse/read";
 import type { LookId } from "../lib/map/style";
 import type { CameraMode } from "../lib/playback/timeline";
 import { type DayStats, DEFAULT_END, DEFAULT_LIVE, type EndStat, type LiveStat } from "../lib/hud/stats";
@@ -112,7 +113,7 @@ function storedRouteColor(): string {
 
 /** One activity of a combined day, as read from its file. */
 export interface CombinedSource {
-  text: string;
+  data: FileData;
   fileName: string;
   /** Which activity in the file. */
   index: number;
@@ -190,7 +191,8 @@ interface State {
   mapDetail: MapDetail;
   setMapDetail(d: MapDetail): void;
 
-  loadText(text: string, fileName: string): Promise<boolean>;
+  /** Text for TCX/GPX, bytes for FIT. */
+  loadData(data: FileData, fileName: string): Promise<boolean>;
   /** Stitches activities from several files into one (a combined day) and loads it. */
   loadCombined(sources: CombinedSource[]): Promise<boolean>;
   loadFile(file: File): Promise<boolean>;
@@ -396,19 +398,19 @@ export const useStore = create<State>((set, get) => {
       set({ mapDetail: d });
     },
 
-    async loadText(text, fileName) {
+    async loadData(data, fileName) {
       // Ghosts belong to the activity they were picked for.
       for (const p of get().photos) p.bitmap.close();
       set({ loading: true, error: null, ghosts: null, photos: [] });
       try {
-        const activities = await parseInWorker(text, fileName);
+        const activities = await parseInWorker(data, fileName);
         // Default to the longest activity when a file holds several.
         const best = activities.reduce((x, y) => (y.samples.length > x.samples.length ? y : x));
         set({ fileName, activities });
         await selectActivity(best);
         set({ loading: false });
         try {
-          sessionStorage.setItem(SESSION_KEY, JSON.stringify({ fileName, text }));
+          sessionStorage.setItem(SESSION_KEY, JSON.stringify({ fileName, text: storableData(data) }));
         } catch {
           // Too large or storage unavailable; refresh will just return to upload.
         }
@@ -424,13 +426,13 @@ export const useStore = create<State>((set, get) => {
       set({ loading: true, error: null, ghosts: null, photos: [] });
       try {
         // Loaded on demand: only combined days need it, and this store is in the first download.
-        const [{ combineActivities }, ...parsed] = await Promise.all([import("../lib/library/combine"), ...sources.map((src) => parseInWorker(src.text, src.fileName))]);
+        const [{ combineActivities }, ...parsed] = await Promise.all([import("../lib/library/combine"), ...sources.map((src) => parseInWorker(src.data, src.fileName))]);
         const combined = combineActivities(parsed.map((acts, k) => acts[sources[k].index] ?? acts[0]));
         set({ fileName: combined.name, activities: [combined] });
         await selectActivity(combined);
         set({ loading: false });
         try {
-          sessionStorage.setItem(SESSION_KEY, JSON.stringify({ combined: sources }));
+          sessionStorage.setItem(SESSION_KEY, JSON.stringify({ combined: sources.map((s) => ({ ...s, data: storableData(s.data) })) }));
         } catch {
           // Too large or storage unavailable; refresh will just return to upload.
         }
@@ -446,7 +448,13 @@ export const useStore = create<State>((set, get) => {
         set({ error: "That file is over 60 MB. Activity exports are usually under 10 MB; is it the right file?" });
         return false;
       }
-      return get().loadText(await file.text(), file.name);
+      try {
+        const { data, fileName } = await readActivityFile(file, file.name);
+        return get().loadData(data, fileName);
+      } catch {
+        set({ error: "Couldn't read that file. If it's gzipped (.gz), it may be damaged." });
+        return false;
+      }
     },
 
     async loadSample() {
@@ -454,7 +462,7 @@ export const useStore = create<State>((set, get) => {
       try {
         const res = await fetch(SAMPLE_URL);
         if (!res.ok) throw new Error(`Couldn't load the sample (${res.status}).`);
-        return get().loadText(await res.text(), SAMPLE_NAME);
+        return get().loadData(await res.text(), SAMPLE_NAME);
       } catch (err) {
         set({ loading: false, error: err instanceof Error ? err.message : String(err) });
         return false;
@@ -470,9 +478,10 @@ export const useStore = create<State>((set, get) => {
         try {
           const raw = sessionStorage.getItem(SESSION_KEY);
           if (!raw) return;
-          const saved = JSON.parse(raw) as { fileName: string; text: string } | { combined: CombinedSource[] };
-          if ("combined" in saved) await get().loadCombined(saved.combined);
-          else await get().loadText(saved.text, saved.fileName);
+          type Stored = Parameters<typeof restoredData>[0];
+          const saved = JSON.parse(raw) as { fileName: string; text: Stored } | { combined: (Omit<CombinedSource, "data"> & { data: Stored })[] };
+          if ("combined" in saved) await get().loadCombined(saved.combined.map((s) => ({ ...s, data: restoredData(s.data) })));
+          else await get().loadData(restoredData(saved.text), saved.fileName);
         } catch {
           // Ignore a corrupt session entry.
         }

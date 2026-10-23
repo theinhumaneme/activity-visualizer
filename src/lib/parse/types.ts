@@ -53,7 +53,7 @@ export interface Activity {
   utcOffsetMin?: number;
   device?: string;
   notes?: string;
-  source: "tcx" | "gpx";
+  source: "tcx" | "gpx" | "fit";
   laps: Lap[];
   samples: Sample[];
   /** Totals as written by the device, for comparison with what we compute. */

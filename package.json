@@ -2,7 +2,7 @@
   "name": "activity-visualizer",
   "private": true,
   "version": "0.1.0",
-  "description": "Turn GPX/TCX activities into 3D flyovers, deep analysis and shareable videos, right in your browser. Files never leave your device.",
+  "description": "Turn FIT/GPX/TCX activities into 3D flyovers, deep analysis and shareable videos, right in your browser. Files never leave your device.",
   "license": "MIT",
   "author": "Kalyan Mudumby",
   "repository": {

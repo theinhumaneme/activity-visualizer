@@ -197,7 +197,7 @@ export function LibraryPage() {
 
   const total = useMemo(() => shown.reduce((s, e) => s + e.distance, 0), [shown]);
   const notes = [
-    unsupported > 0 && `${unsupported} ${unsupported === 1 ? "file isn't" : "files aren't"} TCX or GPX (FIT isn't supported yet).`,
+    unsupported > 0 && `${unsupported} ${unsupported === 1 ? "file isn't" : "files aren't"} FIT, TCX or GPX.`,
     duplicates > 0 && `${duplicates} already in your library.`,
   ].filter(Boolean) as string[];
 

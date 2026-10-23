@@ -43,7 +43,7 @@ function InstallApp() {
         <button type="button" className="btn btn-sm btn-quiet" onClick={() => void install()}>
           Install the app
         </button>{" "}
-        — works offline and opens your GPX and TCX files.
+        — works offline and opens your FIT, GPX and TCX files.
       </p>
     );
   if (iosHint) return <p className="mt-1.5">Install it: Share → Add to Home Screen.</p>;

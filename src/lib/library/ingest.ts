@@ -1,5 +1,6 @@
 import { analyze, defaultSettings } from "../analysis/analyze";
 import { parseActivityFile } from "../parse";
+import { readActivityFile } from "../parse/read";
 import { buildRecord } from "./record";
 import type { LibraryRecord } from "./types";
 
@@ -14,10 +15,8 @@ export type LibraryResult =
 
 /** Reads, parses and analyzes one file off the main thread; only the light records come back. */
 export async function ingestFile({ id, file }: LibraryJob): Promise<LibraryResult> {
-  const gz = /\.gz$/i.test(file.name);
-  const text = gz ? await new Response(file.stream().pipeThrough(new DecompressionStream("gzip"))).text() : await file.text();
-  const name = file.name.replace(/\.gz$/i, "");
-  const activities = parseActivityFile(text, name);
+  const { data, fileName } = await readActivityFile(file, file.name);
+  const activities = parseActivityFile(data, fileName);
   const records: LibraryRecord[] = [];
   const skipped: string[] = [];
   activities.forEach((activity, i) => {

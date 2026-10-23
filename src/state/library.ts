@@ -3,12 +3,13 @@ import type { Units } from "../lib/analysis/types";
 import { defaultUnits } from "../lib/format/format";
 import { clearEntries, deleteEntries, loadEntries, saveEntries } from "../lib/library/persist";
 import { processFiles } from "../lib/library/pool";
+import { readActivityFile } from "../lib/parse/read";
 import { RECORD_VERSION, isDuplicate } from "../lib/library/record";
 import type { LibraryEntry } from "../lib/library/types";
 import { DEFAULT_PRIVACY_RADIUS, useStore } from "./store";
 
-/** Files the library can read: TCX and GPX, optionally gzipped (as in a Strava bulk export). */
-export const LIBRARY_FILE = /\.(tcx|gpx)(\.gz)?$/i;
+/** Files the library can read: TCX, GPX and FIT, optionally gzipped (as in a Strava bulk export). */
+export const LIBRARY_FILE = /\.(tcx|gpx|fit)(\.gz)?$/i;
 const MAX_BYTES = 60 * 1024 * 1024;
 const UNITS_KEY = "rv:units";
 const PRIVACY_KEY = "rv:privacy-radius";
@@ -45,7 +46,7 @@ interface LibraryState {
   loading: boolean;
   progress: { done: number; total: number };
   problems: FileProblem[];
-  /** Files left out before parsing (not TCX/GPX), and activities already in the library. */
+  /** Files left out before parsing (not TCX/GPX/FIT), and activities already in the library. */
   unsupported: number;
   duplicates: number;
   units: Units;
@@ -65,15 +66,6 @@ interface LibraryState {
   open(id: string): Promise<boolean>;
   /** Stitches several activities into one, in the order they happened, and loads that. */
   openCombined(ids: string[]): Promise<boolean>;
-}
-
-/** An entry's file as text (Strava bulk exports gzip them), with the name it's parsed under. */
-async function readEntry(entry: LibraryEntry): Promise<{ text: string; fileName: string }> {
-  if (/\.gz$/i.test(entry.file.name)) {
-    const text = await new Response(entry.file.stream().pipeThrough(new DecompressionStream("gzip"))).text();
-    return { text, fileName: entry.file.name.replace(/\.gz$/i, "") };
-  }
-  return { text: await entry.file.text(), fileName: entry.file.name };
 }
 
 let abort: AbortController | null = null;
@@ -188,7 +180,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     const entry = get().entries.find((e) => e.id === id);
     if (!entry) return false;
     const main = useStore.getState();
-    const ok = /\.gz$/i.test(entry.file.name) ? await readEntry(entry).then((r) => main.loadText(r.text, r.fileName)) : await main.loadFile(entry.file);
+    const ok = await main.loadFile(entry.file);
     if (!ok) return false;
     const s = useStore.getState();
     if (s.activities.length > 1 && s.activities[entry.activityIndex]) s.chooseActivity(entry.activityIndex);
@@ -200,7 +192,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       .entries.filter((e) => ids.includes(e.id))
       .sort((a, b) => a.startTime - b.startTime);
     try {
-      const sources = await Promise.all(picked.map(async (e) => ({ ...(await readEntry(e)), index: e.activityIndex })));
+      const sources = await Promise.all(picked.map(async (e) => ({ ...(await readActivityFile(e.file, e.file.name)), index: e.activityIndex })));
       return await useStore.getState().loadCombined(sources);
     } catch (err) {
       useStore.setState({ loading: false, error: err instanceof Error ? err.message : String(err) });

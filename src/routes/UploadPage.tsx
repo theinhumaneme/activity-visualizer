@@ -145,7 +145,7 @@ const FEATURES: { icon: Icon; title: string; items: string[] }[] = [
     items: [
       "Install it to your home screen or desktop",
       "Opens offline once installed (maps still need a connection)",
-      "Open or share GPX and TCX files straight into it",
+      "Open or share GPX, TCX and FIT files straight into it",
       "Your files are never uploaded",
     ],
   },
@@ -339,7 +339,7 @@ export function UploadPage() {
                     : "Reading your file…"
                   : state === "dragging"
                     ? "Release to open"
-                    : "Drop a TCX or GPX file"}
+                    : "Drop a FIT, TCX or GPX file"}
               </p>
               <p className="mt-1 text-sm text-ink-2">
                 {state === "loading" ? "Parsing and checking every point, on your device." : "Or a whole folder, to build a library."}
@@ -367,7 +367,7 @@ export function UploadPage() {
                 ref={input}
                 type="file"
                 multiple
-                accept=".tcx,.gpx,.gz,application/xml,text/xml"
+                accept=".fit,.tcx,.gpx,.gz,application/xml,text/xml"
                 className="hidden"
                 onChange={(e) => {
                   handleMany(Array.from(e.target.files ?? []));
@@ -469,11 +469,12 @@ export function UploadPage() {
             <svg viewBox="0 0 24 24" className="chevron h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
               <path d="m9 6 6 6-6 6" />
             </svg>
-            Where do I get a TCX or GPX file?
+            Where do I get a FIT, TCX or GPX file?
           </summary>
           <p className="disclosure-body mt-2 pl-5.5 leading-relaxed">
-            Most fitness apps can export a single activity from that activity's menu: look for <em>Export</em>, <em>Download</em> or <em>Export TCX</em>. Google
-            Health and Fitbit, Garmin Connect, Coros and Polar offer TCX; Strava offers GPX, which also works here.
+            Most fitness apps can export a single activity from that activity's menu: look for <em>Export</em>, <em>Download</em> or <em>Export TCX</em>. Garmin
+            Connect, Coros, Wahoo and Zwift give you the original FIT file; Google Health, Fitbit and Polar offer TCX; Strava offers GPX, and its bulk export
+            holds your original FIT files. All three work here.
           </p>
         </details>
       </div>
