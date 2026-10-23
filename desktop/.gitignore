@@ -1,0 +1,5 @@
+node_modules
+app
+build.json
+release
+.upstream

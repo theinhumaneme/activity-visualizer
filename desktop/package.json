@@ -1,0 +1,25 @@
+{
+  "name": "activity-visualizer-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Portable Windows build of Activity Visualizer",
+  "author": "ThePlayse",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable --x64"
+  },
+  "devDependencies": {
+    "electron": "45.0.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.theplayse.activityvisualizer",
+    "productName": "Activity Visualizer",
+    "files": ["main.js", "build.json", "app/**"],
+    "icon": "app/icons/icon-512.png",
+    "win": { "artifactName": "ActivityVisualizer-portable.exe" },
+    "directories": { "output": "release" }
+  }
+}

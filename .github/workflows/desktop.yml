@@ -1,0 +1,65 @@
+# Rebuilds the portable Windows exe whenever the original repo (or desktop/) changes, and publishes
+# it as a GitHub Release. The exe checks the latest release at startup and offers the download.
+name: Desktop build
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Rebuild even if nothing changed"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+
+permissions:
+  contents: write
+
+concurrency: desktop-build
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DESKTOP_SHA: ${{ github.sha }}
+    steps:
+      - name: Anything new?
+        id: check
+        run: |
+          up=$(git ls-remote https://github.com/theinhumaneme/activity-visualizer HEAD | cut -c1-7)
+          tag="build-$up-${DESKTOP_SHA::7}"
+          if [ "${{ inputs.force }}" != "true" ] && gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists, nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.skip != 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.skip != 'true'
+        with:
+          node-version: 24
+
+      - name: Build exe
+        id: build
+        if: steps.check.outputs.skip != 'true'
+        shell: pwsh
+        run: ./desktop/build.ps1
+
+      - name: Publish release
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          tag="${{ steps.build.outputs.tag }}"
+          gh release delete "$tag" -y --cleanup-tag -R "$GITHUB_REPOSITORY" 2>/dev/null || true
+          gh release create "$tag" desktop/release/ActivityVisualizer-portable.exe \
+            -R "$GITHUB_REPOSITORY" --target "$DESKTOP_SHA" --latest \
+            --title "Activity Visualizer $(date -u +%Y-%m-%d) ($tag)" \
+            --notes "Portable Windows build of [the original app](https://github.com/theinhumaneme/activity-visualizer/commit/$(echo $tag | cut -d- -f2)). Download ActivityVisualizer-portable.exe and run it, no install needed."
