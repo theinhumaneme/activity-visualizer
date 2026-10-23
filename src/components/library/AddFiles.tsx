@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { droppedFiles } from "../../lib/library/files";
 import { useLibrary } from "../../state/library";
 
-const ACCEPT = ".fit,.tcx,.gpx,.gz,application/xml,text/xml,application/gzip";
+const ACCEPT = ".fit,.tcx,.gpx,.gz,.csv,application/xml,text/xml,application/gzip,text/csv";
 
 /** "Add files" / "Add a folder" buttons, optionally inside a drop zone. */
 export function AddFiles({ zone = false }: { zone?: boolean }) {
@@ -73,7 +73,7 @@ export function AddFiles({ zone = false }: { zone?: boolean }) {
     >
       <p className="font-display text-3xl font-semibold uppercase">Drop everything you've recorded.</p>
       <p className="mt-2 max-w-md text-sm text-ink-2">
-        Runs, rides, hikes, swims: a stack of .fit, .tcx or .gpx files, or a whole folder. A Strava bulk export's <em>activities</em> folder works, .gz and all. Everything stays on this device.
+        Runs, rides, hikes, swims: a stack of .fit, .tcx or .gpx files, or a whole folder. A whole Strava bulk export works, .gz and all; its <em>activities.csv</em> brings your names and gear. Everything stays on this device.
       </p>
       <div className="mt-5">{buttons}</div>
     </div>

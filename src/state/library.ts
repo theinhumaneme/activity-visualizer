@@ -4,7 +4,10 @@ import { defaultUnits } from "../lib/format/format";
 import { clearEntries, deleteEntries, loadEntries, saveEntries } from "../lib/library/persist";
 import { processFiles } from "../lib/library/pool";
 import { readActivityFile } from "../lib/parse/read";
-import { RECORD_VERSION, isDuplicate } from "../lib/library/record";
+import { RECORD_VERSION, isDuplicate, readableName } from "../lib/library/record";
+/** A Strava export's activities.csv. Reading it loads on demand: most libraries never see one. */
+const STRAVA_CSV = /(^|\/)activities\.csv$/i;
+const strava = () => import("../lib/library/strava");
 import type { LibraryEntry } from "../lib/library/types";
 import { DEFAULT_PRIVACY_RADIUS, useStore } from "./store";
 
@@ -49,6 +52,8 @@ interface LibraryState {
   /** Files left out before parsing (not TCX/GPX/FIT), and activities already in the library. */
   unsupported: number;
   duplicates: number;
+  /** Activities named from a Strava export's activities.csv in the last files added. */
+  fromStrava: number;
   units: Units;
   /** Reading the saved library at startup. */
   restoring: boolean;
@@ -80,6 +85,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   problems: [],
   unsupported: 0,
   duplicates: 0,
+  fromStrava: 0,
   units: storedUnits(),
   restoring: typeof indexedDB !== "undefined",
   notSaved: false,
@@ -87,6 +93,26 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   async addFiles(files) {
     if (get().loading) return;
+    // A Strava export's activities.csv names its files; it applies to activities already here too.
+    const csv = files.find((f) => STRAVA_CSV.test(f.webkitRelativePath || f.name));
+    const { fileKey, readActivitiesCsv, withStrava } = csv ? await strava() : { fileKey: null, readActivitiesCsv: null, withStrava: null };
+    const details = csv ? await csv.text().then(readActivitiesCsv!, () => null) : null;
+    let fromStrava = 0;
+    if (details?.size) {
+      const named: LibraryEntry[] = [];
+      const entries = get().entries.map((e) => {
+        const d = details.get(fileKey!(e.fileName));
+        if (!d) return e;
+        const n = withStrava!(e, d);
+        named.push(n);
+        return n;
+      });
+      if (named.length) {
+        fromStrava = named.length;
+        set({ entries });
+        void saveEntries(named);
+      }
+    }
     const readable = files.filter((f) => LIBRARY_FILE.test(f.name));
     const tooBig = readable.filter((f) => f.size > MAX_BYTES);
     const jobs = readable.filter((f) => f.size <= MAX_BYTES).map((file) => ({ id: `${session}-${++seq}`, file }));
@@ -96,8 +122,9 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       loading: jobs.length > 0,
       progress: { done: 0, total: jobs.length },
       problems: tooBig.map((f) => ({ fileName: f.name, message: "Over 60 MB; skipped." })),
-      unsupported: files.length - readable.length,
+      unsupported: files.length - readable.length - (csv ? 1 : 0),
       duplicates: 0,
+      fromStrava,
     });
     if (!jobs.length) return;
 
@@ -114,9 +141,14 @@ export const useLibrary = create<LibraryState>((set, get) => ({
         else {
           for (const msg of result.skipped) problems.push({ fileName: job.file.name, message: msg });
           const entries = get().entries;
-          for (const r of result.records) {
+          const d = details && details.get(fileKey!(job.file.name));
+          for (const rec of result.records) {
+            const r = d ? withStrava!(rec, d) : rec;
             if (entries.some((e) => isDuplicate(e, r)) || added.some((e) => isDuplicate(e, r))) duplicates++;
-            else added.push({ ...r, file: job.file });
+            else {
+              added.push({ ...r, file: job.file });
+              if (r.strava) fromStrava++;
+            }
           }
         }
         // Progress repaints at most ~10×/s so 500 files don't mean 500 renders.
@@ -138,6 +170,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       progress: { done, total: jobs.length },
       problems: [...s.problems, ...problems],
       duplicates,
+      fromStrava,
     }));
     if (added.length) {
       const saved = await saveEntries(added);
@@ -154,7 +187,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   clear() {
     abort?.abort();
     abort = null;
-    set({ entries: [], loading: false, progress: { done: 0, total: 0 }, problems: [], unsupported: 0, duplicates: 0, notSaved: false });
+    set({ entries: [], loading: false, progress: { done: 0, total: 0 }, problems: [], unsupported: 0, duplicates: 0, fromStrava: 0, notSaved: false });
     void clearEntries();
   },
 
@@ -179,12 +212,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   async open(id) {
     const entry = get().entries.find((e) => e.id === id);
     if (!entry) return false;
-    const main = useStore.getState();
-    const ok = await main.loadFile(entry.file);
-    if (!ok) return false;
-    const s = useStore.getState();
-    if (s.activities.length > 1 && s.activities[entry.activityIndex]) s.chooseActivity(entry.activityIndex);
-    return true;
+    return useStore.getState().loadFile(entry.file, { index: entry.activityIndex, name: entry.name });
   },
 
   async openCombined(ids) {
@@ -192,7 +220,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       .entries.filter((e) => ids.includes(e.id))
       .sort((a, b) => a.startTime - b.startTime);
     try {
-      const sources = await Promise.all(picked.map(async (e) => ({ ...(await readActivityFile(e.file, e.file.name)), index: e.activityIndex })));
+      const sources = await Promise.all(picked.map(async (e) => ({ ...(await readActivityFile(e.file, e.file.name)), index: e.activityIndex, name: e.name })));
       return await useStore.getState().loadCombined(sources);
     } catch (err) {
       useStore.setState({ loading: false, error: err instanceof Error ? err.message : String(err) });
@@ -224,13 +252,16 @@ async function upgrade(stale: LibraryEntry[]) {
     { concurrency: 2 },
   );
   const updated: LibraryEntry[] = [];
+  const { withStrava } = await strava();
   useLibrary.setState((s) => ({
     upgrading: null,
     entries: s.entries.map((e) => {
       const f = fresh.get(e.id);
       if (!f || (e.version ?? 1) >= RECORD_VERSION) return e;
-      updated.push(f);
-      return f;
+      // What Strava's CSV said isn't in the file; keep it.
+      const g = e.strava ? withStrava(f, e.strava) : f;
+      updated.push(g);
+      return g;
     }),
   }));
   if (updated.length) await saveEntries(updated);
@@ -241,6 +272,8 @@ if (typeof indexedDB !== "undefined")
   void loadEntries()
     .then((saved) => {
       if (!saved.length) return;
+      // Saved before id-only files got readable names.
+      saved = saved.map((e) => (e.strava ? e : { ...e, name: readableName(e) }));
       useLibrary.setState((s) => {
         const ids = new Set(s.entries.map((e) => e.id));
         return { entries: [...s.entries, ...saved.filter((e) => !ids.has(e.id))].sort((a, b) => a.startTime - b.startTime) };

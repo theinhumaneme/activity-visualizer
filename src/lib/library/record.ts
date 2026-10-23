@@ -1,5 +1,7 @@
 import type { Analysis } from "../analysis/types";
 import { formatEffortDistance } from "../format/format";
+import { SPORTS } from "../sport";
+import { localHour } from "./aggregate";
 import type { Activity } from "../parse/types";
 import { simplifyTrack } from "./simplify";
 import type { LibraryRecord } from "./types";
@@ -26,7 +28,7 @@ export function buildRecord(activity: Activity, a: Analysis, meta: { id: string;
     id: meta.id,
     fileName: meta.fileName,
     activityIndex: meta.activityIndex,
-    name: activity.name,
+    name: readableName({ name: activity.name, kind: activity.kind, startTime: activity.startTime, utcOffsetMin: activity.utcOffsetMin }),
     sport: activity.sport,
     kind: activity.kind,
     device: activity.device,
@@ -50,6 +52,17 @@ export function buildRecord(activity: Activity, a: Analysis, meta: { id: string;
     bestEfforts: a.bestEfforts.map((b) => ({ distance: b.distance, label: formatEffortDistance(b.distance), seconds: b.seconds })),
     track,
   };
+}
+
+/**
+ * Files named only by an id (as in a Strava export: "21857591762.tcx") get a name from when they
+ * started, the way Strava names them: "Evening Run". Any other name is kept.
+ */
+export function readableName(r: Pick<LibraryRecord, "name" | "kind" | "startTime" | "utcOffsetMin">): string {
+  if (!/^\d+$/.test(r.name.trim())) return r.name;
+  const h = localHour(r);
+  const part = h >= 5 && h < 11 ? "Morning" : h >= 11 && h < 13 ? "Lunch" : h >= 13 && h < 17 ? "Afternoon" : h >= 17 && h < 21 ? "Evening" : "Night";
+  return `${part} ${SPORTS[r.kind].label}`;
 }
 
 /** The same run imported twice (or as both TCX and GPX): same sport, start within a minute, distance within 5%. */

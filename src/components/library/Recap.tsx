@@ -6,6 +6,7 @@ import { today } from "../../lib/library/load";
 import { predictRaces } from "../../lib/library/predict";
 import type { PersonalRecord } from "../../lib/library/records";
 import type { RouteGroup } from "../../lib/library/similarity";
+import type { GearTotal } from "../../lib/library/strava";
 import type { LibraryRecord } from "../../lib/library/types";
 import { HourBars } from "./charts";
 import { type SportFilter, capitalize, distanceNumber, distanceText, hoursText, shortDate, sportLabel, sportPlural, sportSingular } from "./format";
@@ -20,6 +21,58 @@ function Tile({ label, value, sub }: { label: string; value: React.ReactNode; su
   );
 }
 
+/** Shoes are usually retired somewhere in 500–800 km, or 300–500 mi (meters). */
+const SHOE_LIFE: Record<Units, [number, number]> = { metric: [500_000, 800_000], imperial: [300 * 1609.344, 500 * 1609.344] };
+
+function Gear({ gear, units }: { gear: GearTotal[]; units: Units }) {
+  const [low, high] = SHOE_LIFE[units];
+  const range = `${distanceNumber(low, units)}–${distanceText(high, units)}`;
+  return (
+    <section className="rounded-2xl border border-grid bg-surface p-4 sm:p-5 lg:col-span-2">
+      <div className="label-caps text-muted">Gear · all time</div>
+      <ul className="mt-2 divide-y divide-grid">
+        {gear.map((g) => {
+          const worn = g.distance / high;
+          return (
+            <li key={g.name} className="py-2.5">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4">
+                <span className="font-medium">{g.name}</span>
+                <span className="font-display text-2xl font-semibold tabular">{distanceText(g.distance, units)}</span>
+              </div>
+              <div className="text-xs text-muted">
+                {g.count.toLocaleString()} {g.count === 1 ? "activity" : "activities"} · {hoursText(g.moving)} · {shortDate(g.first)} – {shortDate(g.last)}
+              </div>
+              {g.shoe && (
+                <>
+                  <div
+                    className="relative mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2"
+                    role="meter"
+                    aria-label={`${g.name}: ${distanceText(g.distance, units)} of a typical ${distanceText(high, units)}`}
+                    aria-valuemin={0}
+                    aria-valuemax={high}
+                    aria-valuenow={Math.round(g.distance)}
+                  >
+                    <div className={`h-full rounded-full ${g.distance >= low ? "bg-warning" : "bg-accent"}`} style={{ width: `${Math.min(1, worn) * 100}%` }} />
+                    <div aria-hidden className="absolute inset-y-0 w-px bg-ink/40" style={{ left: `${(low / high) * 100}%` }} />
+                  </div>
+                  <p className="mt-1 text-xs text-ink-2">
+                    {g.distance >= high
+                      ? `Past the ${distanceText(high, units)} most shoes are retired by; check the cushioning and the tread.`
+                      : g.distance >= low
+                        ? `In the ${range} window where most shoes lose their cushioning: about ${distanceText(high - g.distance, units)} left at most.`
+                        : `About ${distanceText(low - g.distance, units)} before the ${range} window where most shoes wear out.`}
+                  </p>
+                </>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-2 text-xs text-muted">From the gear you set on Strava (activities.csv in your export), over your whole library.</p>
+    </section>
+  );
+}
+
 const hourText = (h: number) => new Date(Date.UTC(2000, 0, 1, h)).toLocaleTimeString(undefined, { hour: "numeric", timeZone: "UTC" });
 
 export function Recap({
@@ -30,6 +83,8 @@ export function Recap({
   units,
   periodLabel,
   onOpen,
+  newGround,
+  gear,
 }: {
   records: LibraryRecord[];
   groups: RouteGroup[];
@@ -38,11 +93,28 @@ export function Recap({
   units: Units;
   periodLabel: string;
   onOpen: (id: string) => void;
+  /** Meters of new ground per activity id (see explore.ts). */
+  newGround: ReadonlyMap<string, number>;
+  gear: GearTotal[];
 }) {
   const r = useMemo(() => recap(records, groups, kind === "all" ? null : kind), [records, groups, kind]);
   const byId = useMemo(() => new Map(records.map((x) => [x.id, x])), [records]);
   const st = useMemo(() => streaks(records, today()), [records]);
   const ed = useMemo(() => eddington(records, unitLength(units)), [records, units]);
+  const explored = useMemo(() => {
+    let fresh = 0;
+    let routed = 0;
+    let best: { r: LibraryRecord; share: number } | null = null;
+    for (const x of records) {
+      const n = newGround.get(x.id);
+      if (n === undefined) continue;
+      fresh += n;
+      routed += x.distance;
+      // The most adventurous outing: the biggest share of new ground over at least a kilometer.
+      if (x.distance >= 1000 && (!best || n / x.distance > best.share)) best = { r: x, share: n / x.distance };
+    }
+    return routed > 0 ? { fresh, share: fresh / routed, best } : null;
+  }, [records, newGround]);
   const predictions = useMemo(() => (kind === "run" || kind === "all" ? predictRaces(prs) : []), [prs, kind]);
   if (!r.count) return <p className="py-10 text-center text-muted">Nothing in this period yet.</p>;
   const plural = sportPlural(kind);
@@ -111,6 +183,26 @@ export function Recap({
           value={ed.e}
           sub={`${ed.e} days of ${ed.e}+ ${unitLabel(units)}. ${ed.toNext} more ${ed.toNext === 1 ? "day" : "days"} of ${ed.e + 1}+ for ${ed.e + 1}.`}
         />
+        {explored && (
+          <Tile
+            label="New ground"
+            value={distanceText(explored.fresh, units)}
+            sub={
+              <>
+                {Math.round(explored.share * 100)}% of the way was somewhere you hadn't been before
+                {explored.best && explored.best.share > 0.2 && (
+                  <>
+                    {" · most new: "}
+                    <button className="underline decoration-line underline-offset-2 hover:text-ink" onClick={() => onOpen(explored.best!.r.id)}>
+                      {shortDate(explored.best.r)}
+                    </button>{" "}
+                    ({Math.round(explored.best.share * 100)}%)
+                  </>
+                )}
+              </>
+            }
+          />
+        )}
         {r.mostRun && (
           <Tile
             label="Most-repeated route"
@@ -179,6 +271,7 @@ export function Recap({
           )}
           <p className="mt-2 text-xs text-muted">Fastest stretch of each distance inside any {one}{kind === "all" ? ", per sport" : ""}, from your files only.</p>
         </section>
+        {gear.length > 0 && <Gear gear={gear} units={units} />}
       </div>
     </div>
   );

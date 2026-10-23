@@ -1,5 +1,6 @@
 import type { ElevationSource } from "../analysis/types";
 import type { SportKind } from "../parse/types";
+import type { StravaDetails } from "./strava";
 
 /**
  * Simplified route geometry (≤ ~600 points), with cumulative distance and cumulative moving
@@ -60,6 +61,8 @@ export interface LibraryRecord {
   calories?: number;
   bestEfforts: EffortRecord[];
   track: Track | null;
+  /** Name, sport, gear and description from a Strava export's activities.csv, when one was added. */
+  strava?: StravaDetails;
 }
 
 /** A record plus the file it came from, so it can be opened in the single-activity flow. */

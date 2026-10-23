@@ -10,6 +10,8 @@ import { Loading, Segmented } from "../components/ui";
 import { unitLabel, unitLength } from "../lib/format/format";
 import { groupsWithin, inPeriod, periodIncludesNow, periodOptions } from "../lib/library/aggregate";
 import { MAX_COMBINED, countText, dateSpan } from "../lib/library/combine";
+import { explore } from "../lib/library/explore";
+import { gearTotals } from "../lib/library/strava";
 import { personalRecords, recordsByActivity } from "../lib/library/records";
 import { groupRoutes, relabelGroups } from "../lib/library/similarity";
 import type { LibraryEntry } from "../lib/library/types";
@@ -99,6 +101,7 @@ export function LibraryPage() {
   const problems = useLibrary((s) => s.problems);
   const unsupported = useLibrary((s) => s.unsupported);
   const duplicates = useLibrary((s) => s.duplicates);
+  const fromStrava = useLibrary((s) => s.fromStrava);
   const units = useLibrary((s) => s.units);
   const setUnits = useLibrary((s) => s.setUnits);
   const cancel = useLibrary((s) => s.cancel);
@@ -151,6 +154,9 @@ export function LibraryPage() {
   const grouped = useMemo(() => groupRoutes(ofKind), [ofKind]);
   const allGroups = useMemo(() => relabelGroups(grouped, ofKind, unitLength(units), unitLabel(units)), [grouped, ofKind, units]);
   const groups = useMemo(() => groupsWithin(allGroups, new Set(shown.map((e) => e.id))), [allGroups, shown]);
+  // New ground is judged against everything before it, whatever the sport or period shown.
+  const newGround = useMemo(() => explore(entries).newDistance, [entries]);
+  const gear = useMemo(() => gearTotals(entries), [entries]);
   const prsAllTime = useMemo(() => recordsByActivity(personalRecords(ofKind)), [ofKind]);
   const prsPeriod = useMemo(() => personalRecords(shown), [shown]);
 
@@ -199,6 +205,7 @@ export function LibraryPage() {
   const notes = [
     unsupported > 0 && `${unsupported} ${unsupported === 1 ? "file isn't" : "files aren't"} FIT, TCX or GPX.`,
     duplicates > 0 && `${duplicates} already in your library.`,
+    fromStrava > 0 && `Names and gear for ${fromStrava.toLocaleString()} from Strava's activities.csv.`,
   ].filter(Boolean) as string[];
 
   return (
@@ -334,12 +341,12 @@ export function LibraryPage() {
           </nav>
 
           <div className="mt-4">
-            {tab === "recap" && <Recap records={shown} groups={groups} prs={prsPeriod} kind={kind} units={units} periodLabel={periodLabel} onOpen={openActivity} />}
+            {tab === "recap" && <Recap records={shown} groups={groups} prs={prsPeriod} kind={kind} units={units} periodLabel={periodLabel} onOpen={openActivity} newGround={newGround} gear={gear} />}
             <Suspense fallback={<Loading label="Loading the map…" />}>
               {tab === "heatmap" && <Heatmap records={shown} radius={radius} units={units} />}
               {tab === "race" && <Race key={`${kind}-${period}`} groups={groups} byId={byId} radius={radius} units={units} />}
             </Suspense>
-            {tab === "progress" && <Progress records={shown} history={ofKind} throughToday={periodIncludesNow(period)} kind={kind} units={units} />}
+            {tab === "progress" && <Progress records={shown} history={ofKind} throughToday={periodIncludesNow(period)} kind={kind} units={units} newGround={newGround} />}
             {tab === "list" && (
               <ActivityList
                 records={shown}
@@ -351,13 +358,14 @@ export function LibraryPage() {
                 selected={picked}
                 onSelect={selectRows}
                 onCombine={(ids, to) => void combine(ids, to)}
+                newGround={newGround}
               />
             )}
           </div>
           {tab === "list" && (
             <p className="mt-2 text-xs text-muted">
               Tick two or more activities (shift-click for a run of them) to fly them as one, in the order they happened, or tick any to delete them; days with several get a one-click “Fly the day”. PR badges are
-              all-time bests for each distance across your library. GAP is pace adjusted for hills; load is heart-rate training load (TRIMP), or TSS from power.
+              all-time bests for each distance across your library. GAP is pace adjusted for hills; load is heart-rate training load (TRIMP), or TSS from power; new is the share of the distance where none of your earlier activities had been.
             </p>
           )}
           {tab === "list" && pickedEntries.length > 0 && (

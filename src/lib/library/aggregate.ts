@@ -32,6 +32,8 @@ export interface Bucket {
   distance: number;
   moving: number;
   count: number;
+  /** Of `distance`, meters on ground no earlier activity covered (see explore.ts); 0 when not given. */
+  fresh: number;
   /** Longest single activity in the bucket, meters (0 when empty). */
   longest: number;
   longestId?: string;
@@ -44,7 +46,7 @@ function monthIndex(day: number) {
 const monthStartDay = (m: number) => Date.UTC(Math.floor(m / 12), m % 12, 1) / DAY_MS;
 
 /** Weekly (Monday-start) or monthly totals, contiguous from the first to the last activity (empty buckets included). */
-export function buckets(records: LibraryRecord[], unit: "week" | "month"): Bucket[] {
+export function buckets(records: LibraryRecord[], unit: "week" | "month", newGround?: ReadonlyMap<string, number>): Bucket[] {
   if (!records.length) return [];
   const keyOf = (r: LibraryRecord) => (unit === "week" ? weekStart(localDay(r)) : monthIndex(localDay(r)));
   const keys = records.map(keyOf);
@@ -54,7 +56,7 @@ export function buckets(records: LibraryRecord[], unit: "week" | "month"): Bucke
   const out: Bucket[] = [];
   const index = new Map<number, Bucket>();
   for (let k = lo; k <= hi; k += step) {
-    const b: Bucket = { start: unit === "week" ? k : monthStartDay(k), distance: 0, moving: 0, count: 0, longest: 0 };
+    const b: Bucket = { start: unit === "week" ? k : monthStartDay(k), distance: 0, moving: 0, count: 0, fresh: 0, longest: 0 };
     out.push(b);
     index.set(k, b);
   }
@@ -62,6 +64,7 @@ export function buckets(records: LibraryRecord[], unit: "week" | "month"): Bucke
     const b = index.get(keys[i])!;
     b.distance += r.distance;
     b.moving += r.moving;
+    b.fresh += newGround?.get(r.id) ?? 0;
     b.count++;
     if (r.distance > b.longest) {
       b.longest = r.distance;

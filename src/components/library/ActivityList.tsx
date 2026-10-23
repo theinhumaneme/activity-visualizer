@@ -8,7 +8,7 @@ import type { PersonalRecord } from "../../lib/library/records";
 import type { LibraryRecord } from "../../lib/library/types";
 import { type SportFilter, distanceText, shortDate, sportLabel } from "./format";
 
-type SortKey = "date" | "distance" | "time" | "pace" | "gap" | "hr" | "load";
+type SortKey = "date" | "distance" | "time" | "pace" | "gap" | "hr" | "load" | "new";
 const PAGE = 50;
 
 const shortLabel = (label: string) => label.replace(/^Half marathon$/, "Half").replace(/^Marathon$/, "Full").replace(/^1 mile$/, "Mile").replace(/ km$/, "K");
@@ -26,6 +26,7 @@ export function ActivityList({
   selected,
   onSelect,
   onCombine,
+  newGround,
 }: {
   records: LibraryRecord[];
   prsById: Map<string, PersonalRecord[]>;
@@ -38,7 +39,13 @@ export function ActivityList({
   selected: ReadonlySet<string>;
   onSelect: (ids: string[], on: boolean) => void;
   onCombine: (ids: string[], to: CombineTo) => void;
+  /** Meters of new ground per activity id (see explore.ts). */
+  newGround: ReadonlyMap<string, number>;
 }) {
+  const newShare = (r: LibraryRecord) => {
+    const n = newGround.get(r.id);
+    return n === undefined || r.distance <= 0 ? NaN : n / r.distance;
+  };
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "date", desc: true });
   const [shown, setShown] = useState(PAGE);
   /** The last row ticked, for shift-click ranges. */
@@ -61,6 +68,8 @@ export function ActivityList({
           return r.avgHr ?? NaN;
         case "load":
           return activityLoad(r) ?? NaN;
+        case "new":
+          return newShare(r);
       }
     };
     return [...records].sort((a, b) => {
@@ -70,7 +79,7 @@ export function ActivityList({
       if (Number.isNaN(va) !== Number.isNaN(vb)) return Number.isNaN(va) ? 1 : -1;
       return sort.desc ? vb - va : va - vb;
     });
-  }, [records, sort]);
+  }, [records, sort, newGround]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Days with two or more activities get a header with "Fly the day" while sorted by date.
   const days = useMemo(() => {
@@ -95,6 +104,7 @@ export function ActivityList({
 
   const hasGap = records.some((r) => r.gapPace !== undefined);
   const hasLoad = records.some((r) => activityLoad(r) !== undefined);
+  const hasNew = records.some((r) => newGround.has(r.id));
   const header = (key: SortKey, label: string, className = "") => {
     const active = sort.key === key;
     return (
@@ -128,6 +138,7 @@ export function ActivityList({
               {hasGap && header("gap", "GAP", "text-right")}
               {header("hr", "HR", "text-right")}
               {hasLoad && header("load", "Load", "text-right")}
+              {hasNew && header("new", "New", "text-right")}
               <th scope="col" className="label-caps px-2 py-2 text-left font-normal text-muted">
                 Records
               </th>
@@ -156,7 +167,7 @@ export function ActivityList({
                     </td>
                     <td className="py-2 pl-1 pr-2">
                       <div className="whitespace-nowrap">{shortDate(r)}</div>
-                      <div className="max-w-[16rem] truncate text-xs text-muted" title={r.fileName}>
+                      <div className="max-w-[16rem] truncate text-xs text-muted" title={[r.strava?.description, r.strava?.gear, r.fileName].filter(Boolean).join(" · ")}>
                         {kind === "all" && `${sportLabel(r.kind)} · `}
                         {formatClock(r.startTime, r.utcOffsetMin)} · {r.name}
                       </div>
@@ -173,6 +184,11 @@ export function ActivityList({
                     {hasLoad && (
                       <td className="whitespace-nowrap px-2 py-2 text-right" title={r.trimp !== undefined ? "Heart-rate training load (TRIMP)" : r.tss !== undefined ? "Training stress from power (TSS)" : undefined}>
                         {activityLoad(r) !== undefined ? Math.round(activityLoad(r)!) : <span className="text-muted">—</span>}
+                      </td>
+                    )}
+                    {hasNew && (
+                      <td className="whitespace-nowrap px-2 py-2 text-right" title="Share of the distance on ground none of your earlier activities covered">
+                        {Number.isFinite(newShare(r)) ? `${Math.round(newShare(r) * 100)}%` : <span className="text-muted">—</span>}
                       </td>
                     )}
                     <td className="px-2 py-2">

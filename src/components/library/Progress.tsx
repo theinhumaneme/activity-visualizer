@@ -41,21 +41,25 @@ export function Progress({
   throughToday,
   kind,
   units,
+  newGround,
 }: {
   records: LibraryRecord[];
   history: LibraryRecord[];
   throughToday: boolean;
   kind: SportFilter;
   units: Units;
+  /** Meters of new ground per activity id (see explore.ts). */
+  newGround: ReadonlyMap<string, number>;
 }) {
   const theme = useTheme((s) => s.theme);
   const ul = unitLength(units);
   const unit = unitLabel(units);
   const sorted = useMemo(() => [...records].sort((a, b) => a.startTime - b.startTime), [records]);
-  const weeks = useMemo(() => buckets(sorted, "week"), [sorted]);
+  const weeks = useMemo(() => buckets(sorted, "week", newGround), [sorted, newGround]);
   // Past ~18 months of weeks the bars get too thin to read; switch to months.
   const monthly = weeks.length > 78;
-  const volume = useMemo(() => (monthly ? buckets(sorted, "month") : weeks), [monthly, sorted, weeks]);
+  const volume = useMemo(() => (monthly ? buckets(sorted, "month", newGround) : weeks), [monthly, sorted, weeks, newGround]);
+  const anyNew = volume.some((b) => b.fresh > 0);
   const fmtDist = (v: number) => `${+(v / ul).toFixed(v / ul < 10 ? 1 : 0)}`;
   const xOf = (r: LibraryRecord) => localDay(r) * DAY_MS;
 
@@ -165,16 +169,33 @@ export function Progress({
         )}
       </Panel>
 
-      <Panel title={`${monthly ? "Monthly" : "Weekly"} distance (${unit})`} note={monthly ? "Monthly totals: your library spans more than 18 months." : "Monday to Sunday, in each activity's local time."}>
+      <Panel
+        title={`${monthly ? "Monthly" : "Weekly"} distance (${unit})`}
+        note={
+          <>
+            {monthly ? "Monthly totals: your library spans more than 18 months." : "Monday to Sunday, in each activity's local time."}
+            {anyNew && (
+              <>
+                {" "}
+                <span className="inline-block h-2 w-2 rounded-sm bg-accent align-middle" /> New ground, where none of your earlier activities had been (any
+                sport); <span className="inline-block h-2 w-2 rounded-sm bg-[var(--muted)] align-middle" /> ground you'd covered before.
+              </>
+            )}
+          </>
+        }
+      >
         <TimeBars
-          label={`${monthly ? "Monthly" : "Weekly"} distance`}
+          label={`${monthly ? "Monthly" : "Weekly"} distance${anyNew ? ", new ground and familiar" : ""}`}
+          colors={anyNew ? ["var(--muted)", "var(--accent)"] : undefined}
           data={volume.map((b) => ({
             x: b.start * DAY_MS,
             value: b.distance,
+            parts: anyNew ? [b.distance - b.fresh, b.fresh] : undefined,
             tip: (
               <>
                 <div className="text-muted">{monthly ? monthLabel(b.start) : weekLabel(b.start)}</div>
                 <div className="font-semibold">{distanceText(b.distance, units)}</div>
+                {anyNew && b.distance > 0 && <div className="text-ink-2">{distanceText(b.fresh, units)} new ground</div>}
                 <div className="text-ink-2">
                   {b.count} {b.count === 1 ? one : plural}
                 </div>
