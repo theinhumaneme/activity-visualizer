@@ -123,6 +123,8 @@ export function FlyoverPage() {
   const freeRef = useRef(free);
   freeRef.current = free;
   const [ready, setReady] = useState(false);
+  /** The timeline has put the camera in place. Until then the map stays hidden: it opens on a placeholder view. */
+  const [placed, setPlaced] = useState(false);
   /** The look's own sky, so the real sky and haze can be switched off again. */
   const atmosphere = useRef<AtmosphereBase | null>(null);
   const [loadingTiles, setLoadingTiles] = useState(true);
@@ -208,11 +210,14 @@ export function FlyoverPage() {
     [drawOverlay],
   );
 
-  // Map setup, once per activity and look (a new style needs a fresh map and layers).
+  // Map setup, once per activity and look (a new style needs a fresh map and layers). A new analysis
+  // of the same activity (terrain heights arriving, a settings change) keeps the map: only the
+  // route is redrawn, so the flight carries on instead of reloading.
   useEffect(() => {
     let map: MlMap | null = null;
     let cancelled = false;
     setReady(false);
+    setPlaced(false);
     setLoadingTiles(true);
     setStyleError(null);
     const ro = new ResizeObserver(() => map?.resize());
@@ -242,7 +247,6 @@ export function FlyoverPage() {
         });
         mapRef.current = map;
         map.on("load", () => {
-          const st = useStore.getState();
           applyTerrainQuality(map!, DETAIL[detail].terrainQuality);
           addFlyoverLayers(map!, look);
           addLandmarkLayers(map!, look, a.settings.units, useStore.getState().landmarks);
@@ -250,7 +254,6 @@ export function FlyoverPage() {
           const sun = useStore.getState().sunLighting ? activitySun(a.samples, !a.activity.routeOnly) : null;
           if (sun) applySunLighting(map!, sun);
           atmosphere.current = captureAtmosphere(map!);
-          rendererRef.current = new FlyoverRenderer(map!, a, { mode: st.colorMode, color: st.routeColor, theme: look.ramp }, look);
           setReady(true);
           // Don't block the preview on every last tile: first idle, or 4 s, whichever comes first.
           const reveal = () => !cancelled && setLoadingTiles(false);
@@ -269,7 +272,17 @@ export function FlyoverPage() {
     };
     // `look` and `drawOverlay` derive from lookId and the activity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [a, lookId, exaggeration, attempt, detail, sunLighting]);
+  }, [a.activity, a.settings.units, lookId, exaggeration, attempt, detail, sunLighting]);
+
+  // The route layers for this analysis. Declared before the timeline below, which draws with it.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const st = useStore.getState();
+    rendererRef.current = new FlyoverRenderer(map, a, { mode: st.colorMode, color: st.routeColor, theme: look.ramp }, look);
+    // `look` changes only with a new map, which resets `ready`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, a]);
 
   // (Re)build the timeline when framing inputs change, keeping the relative position.
   /**
@@ -345,6 +358,7 @@ export function FlyoverPage() {
       timelineRef.current = stops.timeline;
       photoPagesRef.current = stops.pages;
       show(frac * timelineRef.current.duration);
+      setPlaced(true);
       schedulePreload();
     };
     rebuild();
@@ -509,7 +523,7 @@ export function FlyoverPage() {
             style={SHAPES.find((f) => f.value === shape)?.style}
           >
             {/* Sized with h-full/w-full: MapLibre makes its container position: relative. */}
-            <div ref={container} className={`h-full w-full ${free ? "cursor-grab" : ""}`} />
+            <div ref={container} className={`h-full w-full transition-opacity duration-300 ${placed ? "" : "opacity-0"} ${free ? "cursor-grab" : ""}`} />
             <canvas ref={hud} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden />
             {focus && (
               <div className="absolute left-3 top-3 flex max-w-[calc(100%-1.5rem)] items-center gap-2 rounded-full bg-black/65 py-1 pl-3 pr-1 text-[13px] font-medium text-white backdrop-blur-sm">

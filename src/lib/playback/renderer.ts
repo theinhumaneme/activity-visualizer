@@ -171,6 +171,7 @@ export class FlyoverRenderer {
       this.km.push({ d: k * unit, id: k });
     }
     this.source("route-km").setData({ type: "FeatureCollection", features });
+    this.map.removeFeatureState({ source: "route-km" });
   }
 
   /** Golden Hour's white-hot route replaces the default orange when coloring is solid. */
@@ -221,7 +222,10 @@ export class FlyoverRenderer {
     }
     this.source("route").setData({ type: "FeatureCollection", features });
     this.source("route-runs").setData({ type: "FeatureCollection", features: runs });
-    // New data starts with no feature state; redraw progress from scratch on the next frame.
+    // Feature state outlives setData (and an earlier renderer on the same map): clear it and redraw
+    // progress from scratch on the next frame.
+    this.map.removeFeatureState({ source: "route" });
+    this.map.removeFeatureState({ source: "route-runs" });
     this.drawn = 0;
     this.mergedTo = 0;
     this.tail.clear();
