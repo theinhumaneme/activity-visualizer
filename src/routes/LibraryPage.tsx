@@ -41,18 +41,20 @@ function storedTab(): Tab {
   return "recap";
 }
 
-/** The activities picked to fly together, with what they add up to and what to do with them. */
+/** The picked activities, with what they add up to and what to do with them: fly them together, or delete them. */
 function PickedBar({
   picked,
   hidden,
   busy,
   onCombine,
+  onDelete,
   onClear,
 }: {
   picked: LibraryEntry[];
   hidden: number;
   busy: boolean;
   onCombine: (to: CombineTo) => void;
+  onDelete: () => void;
   onClear: () => void;
 }) {
   const sorted = [...picked].sort((a, b) => a.startTime - b.startTime);
@@ -76,6 +78,9 @@ function PickedBar({
         <button onClick={onClear} className={`${btn} btn-quiet`}>
           Clear
         </button>
+        <button onClick={onDelete} disabled={busy} className={`${btn} btn-quiet text-critical`}>
+          Delete
+        </button>
         <button onClick={() => onCombine("export")} disabled={!ready} className={`${btn} btn-secondary`}>
           Export as one video
         </button>
@@ -98,6 +103,7 @@ export function LibraryPage() {
   const setUnits = useLibrary((s) => s.setUnits);
   const cancel = useLibrary((s) => s.cancel);
   const clear = useLibrary((s) => s.clear);
+  const remove = useLibrary((s) => s.remove);
   const restoring = useLibrary((s) => s.restoring);
   const notSaved = useLibrary((s) => s.notSaved);
   const upgrading = useLibrary((s) => s.upgrading);
@@ -160,7 +166,7 @@ export function LibraryPage() {
     else setOpenError(useStore.getState().error ?? mainError ?? "Couldn't open that file.");
   }
 
-  // Activities picked to fly as one, from anywhere in the library (filters don't drop them).
+  // Activities picked to fly as one or delete, from anywhere in the library (filters don't drop them).
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set());
   const selectRows = (ids: string[], on: boolean) =>
     setPicked((p) => {
@@ -180,6 +186,13 @@ export function LibraryPage() {
     setOpening(null);
     if (ok) navigate(to === "export" ? "/export" : "/flyover", { state: { autoplay: to === "flyover" } satisfies FlyoverArrival });
     else setOpenError(useStore.getState().error ?? "Couldn't put those activities together.");
+  }
+
+  function deletePicked() {
+    const n = picked.size;
+    if (!confirm(`Delete ${n === 1 ? "this activity" : `these ${n.toLocaleString()} activities`} from the library, including the copies kept in this browser? Your original files aren't touched.`)) return;
+    remove([...picked]);
+    setPicked(new Set());
   }
 
   const total = useMemo(() => shown.reduce((s, e) => s + e.distance, 0), [shown]);
@@ -343,7 +356,7 @@ export function LibraryPage() {
           </div>
           {tab === "list" && (
             <p className="mt-2 text-xs text-muted">
-              Tick two or more activities (shift-click for a run of them) to fly them as one, in the order they happened; days with several get a one-click “Fly the day”. PR badges are
+              Tick two or more activities (shift-click for a run of them) to fly them as one, in the order they happened, or tick any to delete them; days with several get a one-click “Fly the day”. PR badges are
               all-time bests for each distance across your library. GAP is pace adjusted for hills; load is heart-rate training load (TRIMP), or TSS from power.
             </p>
           )}
@@ -353,6 +366,7 @@ export function LibraryPage() {
               hidden={pickedEntries.filter((e) => !byId.has(e.id)).length}
               busy={opening !== null}
               onCombine={(to) => void combine([...picked], to)}
+              onDelete={deletePicked}
               onClear={() => setPicked(new Set())}
             />
           )}

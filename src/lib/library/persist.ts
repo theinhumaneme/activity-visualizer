@@ -57,6 +57,14 @@ export async function saveEntries(entries: LibraryEntry[]): Promise<boolean> {
   }
 }
 
+/** Drops these entries from the saved library. */
+export async function deleteEntries(ids: string[]): Promise<void> {
+  if (typeof indexedDB === "undefined" || !ids.length) return;
+  await run("readwrite", (s) => {
+    for (const id of ids) s.delete(id);
+  }).catch(() => {});
+}
+
 export async function clearEntries(): Promise<void> {
   if (typeof indexedDB === "undefined") return;
   await run("readwrite", (s) => s.clear()).catch(() => {});

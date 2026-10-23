@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { Units } from "../lib/analysis/types";
 import { defaultUnits } from "../lib/format/format";
-import { clearEntries, loadEntries, saveEntries } from "../lib/library/persist";
+import { clearEntries, deleteEntries, loadEntries, saveEntries } from "../lib/library/persist";
 import { processFiles } from "../lib/library/pool";
 import { RECORD_VERSION, isDuplicate } from "../lib/library/record";
 import type { LibraryEntry } from "../lib/library/types";
@@ -58,6 +58,8 @@ interface LibraryState {
   addFiles(files: File[]): Promise<void>;
   cancel(): void;
   clear(): void;
+  /** Takes these activities out of the library and the copy kept in this browser. */
+  remove(ids: string[]): void;
   setUnits(u: Units): void;
   /** Loads one activity into the single-activity flow. */
   open(id: string): Promise<boolean>;
@@ -162,6 +164,12 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     abort = null;
     set({ entries: [], loading: false, progress: { done: 0, total: 0 }, problems: [], unsupported: 0, duplicates: 0, notSaved: false });
     void clearEntries();
+  },
+
+  remove(ids) {
+    const gone = new Set(ids);
+    set((s) => ({ entries: s.entries.filter((e) => !gone.has(e.id)) }));
+    void deleteEntries(ids);
   },
 
   setUnits(u) {

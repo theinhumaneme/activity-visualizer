@@ -34,7 +34,7 @@ export function ActivityList({
   /** The id being opened (or "combined" while a combined day loads). */
   opening: string | null;
   onOpen: (id: string) => void;
-  /** Activities picked to fly together (kept across filters, so they can come from anywhere). */
+  /** Activities picked to fly together or delete (kept across filters, so they can come from anywhere). */
   selected: ReadonlySet<string>;
   onSelect: (ids: string[], on: boolean) => void;
   onCombine: (ids: string[], to: CombineTo) => void;
@@ -119,7 +119,7 @@ export function ActivityList({
           <thead className="border-b border-grid text-left">
             <tr>
               <th scope="col" className="w-0 py-2 pl-4 pr-1">
-                <span className="sr-only">Pick to fly together</span>
+                <span className="sr-only">Pick</span>
               </th>
               {header("date", "Date", "pl-1")}
               {header("distance", "Distance", "text-right")}
@@ -150,7 +150,7 @@ export function ActivityList({
                         type="checkbox"
                         checked={selected.has(r.id)}
                         onChange={(e) => toggle(r.id, e.target.checked, (e.nativeEvent as MouseEvent).shiftKey)}
-                        aria-label={`Pick ${r.name}, ${shortDate(r)}, to fly together`}
+                        aria-label={`Pick ${r.name}, ${shortDate(r)}`}
                         className="h-4 w-4 accent-[var(--color-accent)]"
                       />
                     </td>
