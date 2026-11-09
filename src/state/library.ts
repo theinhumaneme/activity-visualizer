@@ -1,13 +1,17 @@
 import { create } from "zustand";
 import type { Units } from "../lib/analysis/types";
 import { defaultUnits } from "../lib/format/format";
-import { clearEntries, deleteEntries, loadEntries, saveEntries } from "../lib/library/persist";
+import { askPersist, clearEntries, deleteEntries, isPersisted, loadEntries, saveEntries } from "../lib/library/persist";
 import { processFiles } from "../lib/library/pool";
 import { readActivityFile } from "../lib/parse/read";
 import { RECORD_VERSION, isDuplicate, readableName } from "../lib/library/record";
 /** A Strava export's activities.csv. Reading it loads on demand: most libraries never see one. */
 const STRAVA_CSV = /(^|\/)activities\.csv$/i;
 const strava = () => import("../lib/library/strava");
+/** A library backup or a zipped Strava export. Unzipping loads on demand too. */
+export const ZIP_FILE = /\.zip$/i;
+const backup = () => import("../lib/library/backup");
+import type { StravaDetails } from "../lib/library/strava";
 import type { LibraryEntry } from "../lib/library/types";
 import { DEFAULT_PRIVACY_RADIUS, useStore } from "./store";
 
@@ -61,7 +65,14 @@ interface LibraryState {
   notSaved: boolean;
   /** Saved activities from an older version being re-read for the newer stats. */
   upgrading: { done: number; total: number } | null;
+  /** Taking the activity files out of a .zip before reading them (`progress` counts them). */
+  unpacking: boolean;
+  /** Whether the browser promised to keep the saved library (null: it can't say, or not asked yet). */
+  persisted: boolean | null;
+  /** TCX, GPX, FIT, Strava's activities.csv, or a .zip of them (a library backup or a Strava export). */
   addFiles(files: File[]): Promise<void>;
+  /** The whole library as one .zip, to keep or move to another browser. */
+  backup(): Promise<Blob>;
   cancel(): void;
   clear(): void;
   /** Takes these activities out of the library and the copy kept in this browser. */
@@ -90,13 +101,51 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   restoring: typeof indexedDB !== "undefined",
   notSaved: false,
   upgrading: null,
+  unpacking: false,
+  persisted: null,
 
   async addFiles(files) {
     if (get().loading) return;
+    const ctrl = new AbortController();
+    abort = ctrl;
+    // ZIPs first: their activity files join the rest, and a backup brings back its Strava names.
+    const zips = files.filter((f) => ZIP_FILE.test(f.name));
+    const zipProblems: FileProblem[] = [];
+    let restored: Map<string, StravaDetails> | null = null;
+    if (zips.length) {
+      set({ loading: true, unpacking: true, progress: { done: 0, total: 0 } });
+      // The unzipping code is a separate chunk: offline before it was ever cached, it can't load.
+      const unpackZip = await backup().then(
+        (m) => m.unpackZip,
+        () => null,
+      );
+      if (!unpackZip) {
+        set({ loading: false, unpacking: false, problems: zips.map((z) => ({ fileName: z.name, message: "Couldn't load the unzipping code; check your connection and try again." })) });
+        if (abort === ctrl) abort = null;
+        return;
+      }
+      files = files.filter((f) => !ZIP_FILE.test(f.name));
+      const keep = (name: string) => LIBRARY_FILE.test(name) || STRAVA_CSV.test(name);
+      for (const zip of zips) {
+        if (ctrl.signal.aborted) break;
+        try {
+          const u = await unpackZip(zip, keep, (done, total) => set({ progress: { done, total } }), ctrl.signal);
+          files.push(...u.files);
+          zipProblems.push(...u.problems);
+          if (u.strava) restored = new Map([...(restored ?? []), ...u.strava]);
+        } catch (err) {
+          zipProblems.push({ fileName: zip.name, message: err instanceof Error ? err.message : String(err) });
+        }
+      }
+      set({ unpacking: false });
+      if (abort !== ctrl) return;
+    }
     // A Strava export's activities.csv names its files; it applies to activities already here too.
     const csv = files.find((f) => STRAVA_CSV.test(f.webkitRelativePath || f.name));
-    const { fileKey, readActivitiesCsv, withStrava } = csv ? await strava() : { fileKey: null, readActivitiesCsv: null, withStrava: null };
-    const details = csv ? await csv.text().then(readActivitiesCsv!, () => null) : null;
+    const { fileKey, readActivitiesCsv, withStrava } = csv || restored?.size ? await strava() : { fileKey: null, readActivitiesCsv: null, withStrava: null };
+    let details = csv ? await csv.text().then(readActivitiesCsv!, () => null) : null;
+    // A backup's names first; an activities.csv dropped alongside it is newer.
+    if (restored?.size) details = new Map([...restored, ...(details ?? [])]);
     let fromStrava = 0;
     if (details?.size) {
       const named: LibraryEntry[] = [];
@@ -116,17 +165,18 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     const readable = files.filter((f) => LIBRARY_FILE.test(f.name));
     const tooBig = readable.filter((f) => f.size > MAX_BYTES);
     const jobs = readable.filter((f) => f.size <= MAX_BYTES).map((file) => ({ id: `${session}-${++seq}`, file }));
-    const ctrl = new AbortController();
-    abort = ctrl;
     set({
       loading: jobs.length > 0,
       progress: { done: 0, total: jobs.length },
-      problems: tooBig.map((f) => ({ fileName: f.name, message: "Over 60 MB; skipped." })),
+      problems: [...zipProblems, ...tooBig.map((f) => ({ fileName: f.name, message: "Over 60 MB; skipped." }))],
       unsupported: files.length - readable.length - (csv ? 1 : 0),
       duplicates: 0,
       fromStrava,
     });
-    if (!jobs.length) return;
+    if (!jobs.length) {
+      if (abort === ctrl) abort = null;
+      return;
+    }
 
     const added: LibraryEntry[] = [];
     const problems: FileProblem[] = [];
@@ -175,13 +225,19 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     if (added.length) {
       const saved = await saveEntries(added);
       set({ notSaved: !saved });
+      void askPersist().then(refreshPersisted);
     }
+  },
+
+  async backup() {
+    const { makeBackup } = await backup();
+    return makeBackup(get().entries);
   },
 
   cancel() {
     abort?.abort();
     abort = null;
-    set({ loading: false });
+    set({ loading: false, unpacking: false });
   },
 
   clear() {
@@ -267,11 +323,16 @@ async function upgrade(stale: LibraryEntry[]) {
   if (updated.length) await saveEntries(updated);
 }
 
+async function refreshPersisted() {
+  useLibrary.setState({ persisted: await isPersisted() });
+}
+
 // Bring back the library saved on earlier visits.
 if (typeof indexedDB !== "undefined")
   void loadEntries()
     .then((saved) => {
       if (!saved.length) return;
+      void refreshPersisted();
       // Saved before id-only files got readable names.
       saved = saved.map((e) => (e.strava ? e : { ...e, name: readableName(e) }));
       useLibrary.setState((s) => {

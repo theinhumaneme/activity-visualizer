@@ -11,5 +11,5 @@
     "noEmit": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["vite.config.ts", "vitest.config.ts", "scripts", "src/**/*.test.ts"]
+  "include": ["vite.config.ts", "vitest.config.ts", "playwright.config.ts", "scripts", "e2e", "src/**/*.test.ts"]
 }

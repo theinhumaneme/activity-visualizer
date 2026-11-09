@@ -37,16 +37,28 @@ export async function loadEntries(): Promise<LibraryEntry[]> {
   return ((await run("readonly", (s) => s.getAll())) as LibraryEntry[] | undefined) ?? [];
 }
 
-let askedPersist = false;
+let asked: Promise<boolean | null> | null = null;
+
+/**
+ * Asks once to keep the library through storage pressure and long absences, and resolves with
+ * the answer (null where the browser can't say). Chrome and Safari decide silently (installed
+ * apps and sites you use often get it); Firefox asks.
+ */
+export function askPersist(): Promise<boolean | null> {
+  asked ??= typeof navigator !== "undefined" && navigator.storage?.persist ? navigator.storage.persist().catch(() => null) : Promise.resolve(null);
+  return asked;
+}
+
+/** Whether the browser has promised to keep this site's storage (null where it can't say). */
+export async function isPersisted(): Promise<boolean | null> {
+  if (typeof navigator === "undefined" || !navigator.storage?.persisted) return null;
+  return navigator.storage.persisted().catch(() => null);
+}
 
 /** Saves new entries; false if the browser refused (storage full or unavailable). */
 export async function saveEntries(entries: LibraryEntry[]): Promise<boolean> {
   if (typeof indexedDB === "undefined" || !entries.length) return true;
-  // Ask once to keep the library through storage pressure (granted silently for installed apps).
-  if (!askedPersist) {
-    askedPersist = true;
-    void navigator.storage?.persist?.().catch(() => {});
-  }
+  void askPersist();
   try {
     await run("readwrite", (s) => {
       for (const e of entries) s.put(e);

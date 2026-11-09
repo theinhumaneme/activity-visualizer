@@ -6,10 +6,14 @@ import { analyze, defaultSettings } from "./analyze";
 const PRIVATE_TCX = "tests/fixtures/private/Lunch_Run.tcx";
 const load = (path: string) => parseActivityFile(readFileSync(path, "utf8"), path)[0];
 
-describe.skipIf(!existsSync(PRIVATE_TCX))("analysis of the Google Health run", () => {
-  const activity = existsSync(PRIVATE_TCX) ? load(PRIVATE_TCX) : null!;
-  const settings = { ...defaultSettings(activity, "metric"), maxHr: 190 };
-  const a = analyze(activity, settings, null);
+const hasPrivate = existsSync(PRIVATE_TCX);
+
+// A skipped describe still runs its body to collect the tests, so the setup must not touch the
+// fixture when it's missing (a fresh clone has no tests/fixtures/private).
+describe.skipIf(!hasPrivate)("analysis of the Google Health run", () => {
+  const activity = hasPrivate ? load(PRIVATE_TCX) : null!;
+  const settings = hasPrivate ? { ...defaultSettings(activity, "metric"), maxHr: 190 } : null!;
+  const a = hasPrivate ? analyze(activity, settings, null) : null!;
 
   it("summarizes distance and time", () => {
     expect(a.summary.distance).toBeCloseTo(2381.76, 1);

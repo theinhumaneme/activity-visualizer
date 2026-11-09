@@ -8,7 +8,7 @@ import { useOpenActivity } from "../components/steps";
 import { ErrorNote, Spinner, stagger } from "../components/ui";
 import { droppedFiles } from "../lib/library/files";
 import { formWord } from "../lib/library/load";
-import { useLibrary } from "../state/library";
+import { ZIP_FILE, useLibrary } from "../state/library";
 import { useStore } from "../state/store";
 
 const CAPABILITIES: { title: string; text: string; art: keyof typeof FEATURE_ART }[] = [
@@ -241,9 +241,9 @@ export function UploadPage() {
     if (await loadFile(file)) openActivity();
   }
 
-  // One file: the single-activity flow. Two or more (or a folder): the library.
+  // One file: the single-activity flow. Two or more (or a folder, or a .zip): the library.
   function handleMany(files: File[]) {
-    if (files.length <= 1) return void handle(files[0]);
+    if (files.length <= 1 && !(files[0] && ZIP_FILE.test(files[0].name))) return void handle(files[0]);
     void useLibrary.getState().addFiles(files);
     navigate("/library");
   }
@@ -367,7 +367,7 @@ export function UploadPage() {
                 ref={input}
                 type="file"
                 multiple
-                accept=".fit,.tcx,.gpx,.gz,application/xml,text/xml"
+                accept=".fit,.tcx,.gpx,.gz,.zip,application/xml,text/xml,application/zip"
                 className="hidden"
                 onChange={(e) => {
                   handleMany(Array.from(e.target.files ?? []));

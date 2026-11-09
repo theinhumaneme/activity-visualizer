@@ -18,6 +18,7 @@ import type { LibraryEntry } from "../lib/library/types";
 import type { SportKind } from "../lib/parse/types";
 import { libraryPrivacyRadius, useLibrary } from "../state/library";
 import { useStore } from "../state/store";
+import { useInstall } from "../lib/pwa";
 
 // The map tabs pull in MapLibre (~290 KB gzipped); load it only when one of them is opened.
 const Heatmap = lazy(() => import("../components/library/Heatmap").then((m) => ({ default: m.Heatmap })));
@@ -110,6 +111,9 @@ export function LibraryPage() {
   const restoring = useLibrary((s) => s.restoring);
   const notSaved = useLibrary((s) => s.notSaved);
   const upgrading = useLibrary((s) => s.upgrading);
+  const unpacking = useLibrary((s) => s.unpacking);
+  const persisted = useLibrary((s) => s.persisted);
+  const makeBackup = useLibrary((s) => s.backup);
   const open = useLibrary((s) => s.open);
   const openCombined = useLibrary((s) => s.openCombined);
   const mainUnits = useStore((s) => s.settings?.units);
@@ -121,6 +125,33 @@ export function LibraryPage() {
   }, [mainUnits]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const radius = useMemo(libraryPrivacyRadius, []);
+  const canInstall = useInstall((s) => !s.installed && (s.prompt !== null || s.iosHint));
+  // The library keeps each original file once, however many activities it holds.
+  const storedSize = useMemo(() => {
+    const bytes = [...new Set(entries.map((e) => e.file))].reduce((sum, f) => sum + f.size, 0);
+    if (!bytes) return "";
+    return bytes < 1e6 ? `${Math.max(1, Math.round(bytes / 1e3))} KB` : `${(bytes / 1e6).toFixed(bytes < 1e7 ? 1 : 0)} MB`;
+  }, [entries]);
+  const [backingUp, setBackingUp] = useState(false);
+  const [backupError, setBackupError] = useState<string | null>(null);
+  async function backUp() {
+    setBackingUp(true);
+    setBackupError(null);
+    try {
+      const [blob, { backupName }] = await Promise.all([makeBackup(), import("../lib/library/backup")]);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = backupName();
+      a.click();
+      // Give the download a moment to start before the blob goes.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      setBackupError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBackingUp(false);
+    }
+  }
   const [tab, setTabState] = useState<Tab>(storedTab);
   const setTab = (t: Tab) => {
     setTabState(t);
@@ -219,13 +250,22 @@ export function LibraryPage() {
           {shown.length > 0 && (
             <p className="mt-2 text-sm text-ink-2">
               {shortDate(shown[0])} – {shortDate(shown[shown.length - 1])}
-              <span className="text-muted"> · kept in this browser for your next visit</span>
+              <span className="text-muted"> · {storedSize ? `${storedSize} ` : ""}kept in this browser for your next visit</span>
+            </p>
+          )}
+          {persisted === false && entries.length > 0 && !notSaved && (
+            <p className="mt-1 max-w-xl text-xs text-muted">
+              This browser hasn't promised to keep it, and may clear it if space runs low or you stay away for a few weeks. Back it up to keep it safe
+              {canInstall ? ", or install the app" : ""}.
             </p>
           )}
         </div>
         {entries.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             <AddFiles />
+            <button onClick={() => void backUp()} disabled={backingUp || loading} className="btn btn-secondary btn-sm disabled:opacity-50" title="Download every activity file in one .zip, with your Strava names and gear. Drop it here (in any browser) to restore.">
+              {backingUp ? "Backing up…" : "Back up"}
+            </button>
             <button
               onClick={() => {
                 if (confirm("Remove every activity from the library, including the copies kept in this browser? Your original files aren't touched.")) clear();
@@ -242,7 +282,7 @@ export function LibraryPage() {
         <div className="mt-6 rounded-2xl border border-grid bg-surface p-4" role="status" aria-live="polite">
           <div className="flex items-center justify-between gap-3 text-sm">
             <span>
-              Reading <span className="tabular">{progress.done.toLocaleString()}</span> of <span className="tabular">{progress.total.toLocaleString()}</span> files…
+              {unpacking ? "Unpacking" : "Reading"} <span className="tabular">{progress.done.toLocaleString()}</span> of <span className="tabular">{progress.total.toLocaleString()}</span> files…
             </span>
             <button onClick={cancel} className="rounded-full px-3 py-1 text-ink-2 hover:bg-surface-2">
               Stop
@@ -280,6 +320,12 @@ export function LibraryPage() {
         <p role="status" className="mt-4 text-sm text-muted">
           Updating saved activities for the new stats: <span className="tabular">{upgrading.done.toLocaleString()}</span> of{" "}
           <span className="tabular">{upgrading.total.toLocaleString()}</span> files…
+        </p>
+      )}
+
+      {backupError && (
+        <p role="alert" className="mt-4 rounded-lg bg-critical/15 px-3 py-2 text-sm text-ink">
+          Couldn't make the backup: {backupError}
         </p>
       )}
 

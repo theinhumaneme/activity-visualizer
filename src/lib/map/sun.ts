@@ -95,7 +95,7 @@ export interface AtmosphereBase {
 }
 
 export function captureAtmosphere(map: MlMap): AtmosphereBase {
-  const sky = { ...((map.getSky() as Record<string, unknown> | undefined) ?? {}) };
+  const sky = { ...(map.getSky() as Record<string, unknown> | undefined) };
   const raster = map.getLayer("satellite")
     ? { bright: map.getPaintProperty("satellite", "raster-brightness-max"), sat: map.getPaintProperty("satellite", "raster-saturation") }
     : null;

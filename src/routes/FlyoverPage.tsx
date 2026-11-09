@@ -182,6 +182,8 @@ export function FlyoverPage() {
         },
       });
     },
+    // placement and photosOn aren't read here, but the photo pages (a ref) change with them, so they redraw the HUD.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
     [a, look, routeColor, exaggeration, liveStats, endStats, highlights, weather, ghosts, ghostsOn, placement, photosOn, comparisons, credit, dayStats],
   );
 

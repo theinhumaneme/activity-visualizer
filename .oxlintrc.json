@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "unicorn", "vitest"],
+  "categories": { "correctness": "error" },
+  "env": { "browser": true, "worker": true, "es2024": true },
+  "rules": {
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "error",
+    "react/react-in-jsx-scope": "off",
+    "react/use-memo": "off",
+    "react/refs": "off",
+    "react/immutability": "off",
+    "react/set-state-in-effect": "off",
+    "unicorn/no-new-array": "off"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts"],
+      "rules": {
+        "no-unused-expressions": "off",
+        "vitest/require-mock-type-parameters": "off",
+        "vitest/no-conditional-expect": "off",
+        "vitest/require-to-throw-message": "off",
+        "vitest/expect-expect": "off"
+      }
+    }
+  ],
+  "ignorePatterns": ["dist/**", "worker-configuration.d.ts", "node_modules/**"]
+}

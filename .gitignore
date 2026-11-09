@@ -7,3 +7,7 @@ dist
 .DS_Store
 # Real activity files stay on your machine (they reveal where and when you run).
 tests/fixtures/private/
+
+# Playwright
+test-results/
+playwright-report/
